@@ -1,0 +1,472 @@
+// Vendors Hub — Prisma schema (PostgreSQL)
+// Money is stored as integer paisa-free BDT (whole taka) -> use Int. Switch to Decimal if you need fractions.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────── ENUMS ─────────────
+
+enum UserRole {
+  CUSTOMER
+  SHOP_OWNER
+  SHOP_STAFF
+  ADMIN
+}
+
+enum VerificationLevel {
+  UNVERIFIED
+  DOCUMENTS_VERIFIED
+  BUSINESS_VERIFIED
+  PHYSICAL_SHOP_VERIFIED
+  TRUSTED_VENDOR
+}
+
+enum VerificationStatus {
+  PENDING
+  AUTO_FLAGGED
+  APPROVED
+  CORRECTION_REQUESTED
+  REJECTED
+  REVOKED
+}
+
+enum DocumentType {
+  TRADE_LICENSE
+  NID
+  SHOP_PHOTO
+  OTHER
+}
+
+enum AvailabilityState {
+  IN_STOCK
+  LIMITED
+  AVAILABLE
+  OUT_OF_STOCK
+}
+
+enum BargainStatus {
+  AWAITING_SHOP // customer offered, shop must respond
+  COUNTERED // shop countered, customer must respond
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+enum OfferActor {
+  CUSTOMER
+  SHOP
+  SYSTEM
+}
+
+enum DeliveryMethod {
+  STORE_PICKUP
+  VENDOR_DELIVERY
+}
+
+enum PaymentMethod {
+  ONLINE
+  PAY_AT_STORE
+  CASH_ON_DELIVERY
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum OrderStatus {
+  PLACED
+  CONFIRMED
+  READY_FOR_PICKUP
+  OUT_FOR_DELIVERY
+  COMPLETED
+  CANCELLED
+}
+
+enum ReviewType {
+  PRODUCT
+  SHOP_TRUST
+}
+
+// ───────────── USERS & AUTH ─────────────
+
+model User {
+  id           String   @id @default(uuid())
+  email        String?  @unique
+  phone        String?  @unique
+  passwordHash String
+  name         String
+  avatarUrl    String?
+  role         UserRole @default(CUSTOMER)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  refreshTokens RefreshToken[]
+  ownedShops    Shop[]            @relation("ShopOwner")
+  staffOf       ShopStaff[]
+  addresses     Address[]
+  cart          Cart?
+  checkouts     CheckoutSession[]
+  bargains      Bargain[]
+  reviews       Review[]
+  follows       ShopFollow[]
+  auditLogs     AuditLog[]
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Address {
+  id        String  @id @default(uuid())
+  userId    String
+  label     String?
+  line1     String
+  area      String?
+  city      String  @default("Dhaka")
+  phone     String
+  isDefault Boolean @default(false)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ───────────── MARKETS & SHOPS ─────────────
+
+model Market {
+  id        String  @id @default(uuid())
+  name      String
+  slug      String  @unique
+  city      String
+  address   String?
+  latitude  Float?
+  longitude Float?
+  shops     Shop[]
+}
+
+model Shop {
+  id                String            @id @default(uuid())
+  ownerId           String
+  marketId          String?
+  name              String
+  slug              String            @unique
+  description       String?
+  logoUrl           String?
+  bannerUrl         String?
+  levelFloor        String? // "Level 3"
+  shopNumber        String? // "Shop 42"
+  addressLine       String
+  latitude          Float?
+  longitude         Float?
+  verificationLevel VerificationLevel @default(UNVERIFIED)
+  lastAuditedAt     DateTime?
+  avgResponseMins   Int?
+  isActive          Boolean           @default(true)
+  supportsDelivery  Boolean           @default(true)
+  supportsPickup    Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  owner         User               @relation("ShopOwner", fields: [ownerId], references: [id])
+  market        Market?            @relation(fields: [marketId], references: [id])
+  staff         ShopStaff[]
+  verifications ShopVerification[]
+  listings      ShopListing[]
+  subOrders     SubOrder[]
+  reviews       Review[]
+  followers     ShopFollow[]
+
+  @@index([marketId])
+  @@index([verificationLevel])
+}
+
+model ShopStaff {
+  shopId String
+  userId String
+  title  String?
+  shop   Shop    @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([shopId, userId])
+}
+
+model ShopFollow {
+  shopId    String
+  userId    String
+  createdAt DateTime @default(now())
+  shop      Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([shopId, userId])
+}
+
+// ───────────── VERIFICATION / AUDIT (Admin portal) ─────────────
+
+model ShopVerification {
+  id              String             @id @default(uuid())
+  shopId          String
+  targetLevel     VerificationLevel
+  status          VerificationStatus @default(PENDING)
+  precheckScore   Int? // 0-100
+  precheckDetails Json? // {tradeLicenseOcr:true, geoMatch:true, nidFaceMatch:"pending"}
+  adminNotes      String?
+  reviewedById    String?
+  reviewedAt      DateTime?
+  submittedAt     DateTime           @default(now())
+
+  shop      Shop                   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  documents VerificationDocument[]
+
+  @@index([status])
+  @@index([shopId])
+}
+
+model VerificationDocument {
+  id             String           @id @default(uuid())
+  verificationId String
+  type           DocumentType
+  fileUrl        String
+  needsReupload  Boolean          @default(false)
+  reviewedAt     DateTime?
+  verification   ShopVerification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+
+  @@index([verificationId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  action     String // "shop.verification.approved"
+  entityType String
+  entityId   String
+  meta       Json?
+  createdAt  DateTime @default(now())
+  actor      User?    @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId])
+}
+
+// ───────────── CATALOG (hybrid: canonical product + shop listing) ─────────────
+
+model Category {
+  id       String     @id @default(uuid())
+  name     String
+  slug     String     @unique
+  parentId String?
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryTree")
+  products Product[]
+}
+
+model Brand {
+  id       String    @id @default(uuid())
+  name     String    @unique
+  products Product[]
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  brandId     String?
+  categoryId  String
+  title       String
+  slug        String   @unique
+  description String?
+  specs       Json? // {ram:"8GB", storage:"128GB", color:"Awesome Navy"}
+  msrp        Int?
+  images      String[]
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  brand    Brand?        @relation(fields: [brandId], references: [id])
+  category Category      @relation(fields: [categoryId], references: [id])
+  listings ShopListing[]
+  reviews  Review[]
+
+  @@index([categoryId])
+  @@index([brandId])
+}
+
+model ShopListing {
+  id              String            @id @default(uuid())
+  shopId          String
+  productId       String
+  price           Int
+  availability    AvailabilityState @default(AVAILABLE)
+  stockQty        Int? // internal only — UI never shows numbers
+  bargainEnabled  Boolean           @default(false)
+  minOfferPercent Int               @default(92) // lowest acceptable offer as % of price
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  shop       Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  product    Product     @relation(fields: [productId], references: [id])
+  bargains   Bargain[]
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+
+  @@unique([shopId, productId])
+  @@index([productId, price])
+}
+
+// ───────────── BARGAINING ─────────────
+
+model Bargain {
+  id           String        @id @default(uuid())
+  listingId    String
+  customerId   String
+  status       BargainStatus @default(AWAITING_SHOP)
+  listPrice    Int // snapshot at start
+  currentOffer Int
+  agreedPrice  Int?
+  expiresAt    DateTime
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  listing   ShopListing    @relation(fields: [listingId], references: [id])
+  customer  User           @relation(fields: [customerId], references: [id])
+  events    BargainEvent[]
+  cartItems CartItem[]
+
+  @@index([listingId, status])
+  @@index([customerId])
+  @@index([expiresAt])
+}
+
+model BargainEvent {
+  id        String     @id @default(uuid())
+  bargainId String
+  actor     OfferActor
+  amount    Int?
+  note      String?
+  createdAt DateTime   @default(now())
+  bargain   Bargain    @relation(fields: [bargainId], references: [id], onDelete: Cascade)
+
+  @@index([bargainId])
+}
+
+// ───────────── CART ─────────────
+
+model Cart {
+  id        String     @id @default(uuid())
+  userId    String     @unique
+  updatedAt DateTime   @updatedAt
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+}
+
+model CartItem {
+  id        String      @id @default(uuid())
+  cartId    String
+  listingId String
+  bargainId String? // set when an accepted bargain price applies
+  quantity  Int         @default(1)
+  cart      Cart        @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  listing   ShopListing @relation(fields: [listingId], references: [id])
+  bargain   Bargain?    @relation(fields: [bargainId], references: [id])
+
+  @@unique([cartId, listingId])
+}
+
+// ───────────── SPLIT CHECKOUT / ORDERS ─────────────
+
+model CheckoutSession {
+  id          String     @id @default(uuid())
+  userId      String
+  totalAmount Int
+  createdAt   DateTime   @default(now())
+  user        User       @relation(fields: [userId], references: [id])
+  subOrders   SubOrder[]
+
+  @@index([userId])
+}
+
+model SubOrder {
+  id              String         @id @default(uuid())
+  orderNumber     String         @unique
+  checkoutId      String
+  shopId          String
+  deliveryMethod  DeliveryMethod
+  deliveryAddress String?
+  deliveryFee     Int            @default(0)
+  subtotal        Int
+  total           Int
+  paymentMethod   PaymentMethod
+  paymentStatus   PaymentStatus  @default(PENDING)
+  status          OrderStatus    @default(PLACED)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  checkout CheckoutSession @relation(fields: [checkoutId], references: [id])
+  shop     Shop            @relation(fields: [shopId], references: [id])
+  items    OrderItem[]
+  payments Payment[]
+
+  @@index([shopId, status])
+  @@index([checkoutId])
+}
+
+model OrderItem {
+  id         String      @id @default(uuid())
+  subOrderId String
+  listingId  String
+  title      String // snapshot
+  unitPrice  Int // snapshot (bargained price if applicable)
+  quantity   Int
+  bargained  Boolean     @default(false)
+  subOrder   SubOrder    @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+  listing    ShopListing @relation(fields: [listingId], references: [id])
+
+  @@index([subOrderId])
+}
+
+model Payment {
+  id          String        @id @default(uuid())
+  subOrderId  String
+  provider    String // "sslcommerz" | "bkash" | "manual"
+  providerRef String?
+  amount      Int
+  status      PaymentStatus @default(PENDING)
+  rawPayload  Json?
+  createdAt   DateTime      @default(now())
+  subOrder    SubOrder      @relation(fields: [subOrderId], references: [id])
+
+  @@index([subOrderId])
+}
+
+// ───────────── REVIEWS (two separate kinds) ─────────────
+
+model Review {
+  id        String     @id @default(uuid())
+  type      ReviewType
+  userId    String
+  shopId    String
+  productId String? // only for PRODUCT reviews
+  rating    Int
+  comment   String?
+  createdAt DateTime   @default(now())
+
+  user    User     @relation(fields: [userId], references: [id])
+  shop    Shop     @relation(fields: [shopId], references: [id])
+  product Product? @relation(fields: [productId], references: [id])
+
+  @@index([shopId, type])
+  @@index([productId])
+}
