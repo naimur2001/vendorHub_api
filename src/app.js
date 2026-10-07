@@ -8,8 +8,14 @@ import { notFound, errorHandler } from './middlewares/errorHandler.js';
 import { authenticate, requireRole } from './middlewares/auth.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import catalogRoutes from './modules/catalog/catalog.routes.js';
+import shopRoutes from './modules/shops/shops.routes.js';
+import listingRoutes from './modules/listings/listings.routes.js';
+
+
 
 export const app = express();
+
+
 
 app.use(helmet());
 app.use(cors());
@@ -32,10 +38,11 @@ app.get('/api/v1/admin/ping', authenticate, requireRole('ADMIN'), (req, res) => 
   res.json({ success: true, data: { message: `pong, admin ${req.user.id}` } });
 });
 
+
 //catalog api
 app.use('/api/v1', catalogRoutes);
-
-
+app.use('/api/v1', shopRoutes);
+app.use('/api/v1', listingRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
