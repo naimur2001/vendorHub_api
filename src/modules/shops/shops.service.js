@@ -266,3 +266,18 @@ export async function createShop(user, input) {
   // starts as UNVERIFIED; the admin verification flow (Days 16-17) raises the level
   return prisma.shop.create({ data: { ...input, slug, ownerId: user.id } });
 }
+
+
+//update shop (shop owner or admin)
+export async function updateShop(user, shopId, input) {
+  const shop = await prisma.shop.findUnique({ where: { id: shopId }, select: { ownerId: true } });
+  if (!shop) throw new AppError(404, 'Shop not found');
+  if (user.role !== 'ADMIN' && shop.ownerId !== user.id) {
+    throw new AppError(403, 'Only the shop owner can edit the shop profile');
+  }
+  if (input.marketId) {
+    const market = await prisma.market.findUnique({ where: { id: input.marketId } });
+    if (!market) throw new AppError(404, 'Market not found');
+  }
+  return prisma.shop.update({ where: { id: shopId }, data: input });
+}

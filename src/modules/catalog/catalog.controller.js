@@ -17,3 +17,7 @@ export const product = async (req, res) => {
   const data = await catalogService.getProduct(req.params.slug, req.validated.listingId);
   res.json({ success: true, data });
 };
+
+export const productListings = async (req, res) => {
+  res.json({ success: true, data: await catalogService.getProductListings(req.params.slug) });
+};

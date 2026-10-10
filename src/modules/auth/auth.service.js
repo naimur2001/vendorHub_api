@@ -74,3 +74,26 @@ export async function getMe(userId) {
   if (!user) throw new AppError(404, 'User not found');
   return publicUser(user);
 }
+
+//change password
+
+
+
+export async function changePassword(userId, { oldPassword, newPassword }) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new AppError(404, 'User not found');
+
+  // 400, not 401: a 401 would make a frontend think the session expired and log the user out
+  const ok = await bcrypt.compare(oldPassword, user.passwordHash);
+  if (!ok) throw new AppError(400, 'Old password is incorrect');
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  // one transaction: new password + revoke every refresh token (forces login on other devices)
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+    prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    }),
+  ]);
+}

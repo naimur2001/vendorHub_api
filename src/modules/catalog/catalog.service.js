@@ -196,3 +196,9 @@ export async function getProduct(slug, listingId) {
     otherShopsCount: others.length,
   };
 }
+
+// Compare table: every shop's listing for this product, cheapest first
+export async function getProductListings(slug) {
+  const { selectedListing, otherListings } = await getProduct(slug);
+  return [selectedListing, ...otherListings].filter(Boolean).sort((a, b) => a.price - b.price);
+}

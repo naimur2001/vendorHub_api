@@ -20,3 +20,15 @@ export const loginSchema = z.object({
 export const refreshSchema = z.object({
   refreshToken: z.string().min(1),
 });
+
+
+//new for change password
+export const changePasswordSchema = z
+  .object({
+    oldPassword: z.string().min(1),
+    newPassword: z.string().min(8).max(72),
+  })
+  .refine((d) => d.oldPassword !== d.newPassword, {
+    message: 'New password must be different from the old one',
+    path: ['newPassword'],
+  });

@@ -38,3 +38,9 @@ export const createShop = async (req, res) => {
   const data = await shopService.createShop(req.user, req.body);
   res.status(201).json({ success: true, data });
 };
+
+// update shop details
+export const updateShop = async (req, res) => {
+  const data = await shopService.updateShop(req.user, req.params.shopId, req.body);
+  res.json({ success: true, data });
+};

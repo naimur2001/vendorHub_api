@@ -25,3 +25,10 @@ export const me = async (req, res) => {
   const data = await authService.getMe(req.user.id);
   res.json({ success: true, data });
 };
+
+//change password
+
+export const changePassword = async (req, res) => {
+  await authService.changePassword(req.user.id, req.body);
+  res.json({ success: true, data: { message: 'Password changed. Please log in again.' } });
+};
