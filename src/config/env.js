@@ -7,6 +7,8 @@ const schema = z.object({
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
   REFRESH_TOKEN_DAYS: z.coerce.number().default(30),
+  // true = POST /orders/:id/pay-mock works (stands in for a payment gateway); set false when a real gateway exists
+  MOCK_PAYMENTS: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
 });
 
 const parsed = schema.safeParse(process.env);
