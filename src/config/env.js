@@ -9,6 +9,9 @@ const schema = z.object({
   REFRESH_TOKEN_DAYS: z.coerce.number().default(30),
   // true = POST /orders/:id/pay-mock works (stands in for a payment gateway); set false when a real gateway exists
   MOCK_PAYMENTS: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  // bargaining: how long the other side has to respond, and how long an agreed price stays valid
+  BARGAIN_TTL_MINUTES: z.coerce.number().positive().default(30),
+  BARGAIN_ACCEPTED_HOURS: z.coerce.number().positive().default(24),
 });
 
 const parsed = schema.safeParse(process.env);

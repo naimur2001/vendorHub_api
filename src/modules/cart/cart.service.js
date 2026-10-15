@@ -80,7 +80,9 @@ export async function getCart(userId) {
         item.bargain.agreedPrice &&
         item.bargain.customerId === userId,
     );
-    const unitPrice = bargainApplied ? item.bargain.agreedPrice : l.price;
+    // const unitPrice = bargainApplied ? item.bargain.agreedPrice : l.price;
+       const unitPrice = bargainApplied ? Math.min(item.bargain.agreedPrice, l.price) : l.price;
+        // never pay more than the current listing price
     const lineTotal = unitPrice * item.quantity;
 
     if (!groups.has(l.shop.id)) {
@@ -143,7 +145,12 @@ export async function addItem(userId, { listingId, quantity }) {
 
   // adding the same listing again increases its quantity
   const newQty = (existing?.quantity ?? 0) + quantity;
-  assertQuantity(listing, newQty);
+  // assertQuantity(listing, newQty);
+     if (existing?.bargainId && newQty > 1) {
+       throw new AppError(400, 'A bargained price applies to one unit only');
+     }
+     assertQuantity(listing, newQty);
+
 
   if (existing) {
     await prisma.cartItem.update({ where: { id: existing.id }, data: { quantity: newQty } });
@@ -154,7 +161,12 @@ export async function addItem(userId, { listingId, quantity }) {
 }
 
 export async function updateItem(userId, itemId, { quantity }) {
-  const item = await findOwnItem(userId, itemId);
+  // const item = await findOwnItem(userId, itemId);
+  
+     const item = await findOwnItem(userId, itemId);
+     if (item.bargainId && quantity > 1) {
+       throw new AppError(400, 'A bargained price applies to one unit only');
+     }
   // lowering the quantity is always allowed; raising it is checked against stock
   if (quantity > item.quantity) assertQuantity(item.listing, quantity);
   await prisma.cartItem.update({ where: { id: itemId }, data: { quantity } });

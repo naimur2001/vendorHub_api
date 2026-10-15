@@ -101,7 +101,9 @@ export async function placeOrders(userId, { shops: choices }) {
             item.bargain.agreedPrice &&
             item.bargain.customerId === userId,
         );
-        const unitPrice = bargained ? item.bargain.agreedPrice : l.price;
+        // const unitPrice = bargained ? item.bargain.agreedPrice : l.price;
+           const unitPrice = bargained ? Math.min(item.bargain.agreedPrice, l.price) : l.price; 
+           // never pay more than the current listing price
 
         if (!byShop.has(l.shop.id)) byShop.set(l.shop.id, { shop: l.shop, lines: [] });
         byShop.get(l.shop.id).lines.push({
@@ -211,7 +213,16 @@ export async function placeOrders(userId, { shops: choices }) {
       }
       await tx.checkoutSession.update({ where: { id: session.id }, data: { totalAmount } });
 
-      // 6. Empty the cart
+         // a bargained price can be used only once
+         const usedBargainIds = cart.items.filter((i) => i.bargainId).map((i) => i.bargainId);
+         if (usedBargainIds.length > 0) {
+           await tx.bargain.updateMany({
+             where: { id: { in: usedBargainIds }, status: 'ACCEPTED' },
+             data: { status: 'EXPIRED' },
+           });
+         }
+
+         // 6. Empty the cart
       await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
 
       return { checkoutId: session.id, totalAmount, orders: orders.map(formatOrder) };

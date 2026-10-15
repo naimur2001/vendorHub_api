@@ -52,6 +52,8 @@ import shopRoutes from './modules/shops/shops.routes.js';
 import listingRoutes from './modules/listings/listings.routes.js';
 import cartRoutes from './modules/cart/cart.routes.js';
 import checkoutRoutes from './modules/checkout/checkout.routes.js';
+import bargainRoutes from './modules/bargains/bargains.routes.js';
+
 
 export const app = express();
 
@@ -89,6 +91,7 @@ app.use('/api/v1', shopRoutes);
 app.use('/api/v1', listingRoutes);
 app.use('/api/v1/cart', cartRoutes);
 app.use('/api/v1/', checkoutRoutes);
+app.use('/api/v1/', bargainRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
