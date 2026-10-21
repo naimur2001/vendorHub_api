@@ -54,7 +54,8 @@ import cartRoutes from './modules/cart/cart.routes.js';
 import checkoutRoutes from './modules/checkout/checkout.routes.js';
 import bargainRoutes from './modules/bargains/bargains.routes.js';
 import verificationRoutes from './modules/verification/verification.routes.js';
-
+import fulfilmentRoutes from './modules/fulfilment/fulfilment.routes.js';
+import reviewRoutes from './modules/reviews/reviews.routes.js';
 
 export const app = express();
 
@@ -94,7 +95,8 @@ app.use('/api/v1/cart', cartRoutes);
 app.use('/api/v1/', checkoutRoutes);
 app.use('/api/v1/', bargainRoutes);
 app.use('/api/v1', verificationRoutes);
-
+app.use('/api/v1', fulfilmentRoutes);
+app.use('/api/v1', reviewRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

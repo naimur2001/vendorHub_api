@@ -14,20 +14,21 @@
 // //change password
 // router.post('/change-password', authenticate, validate(changePasswordSchema), controller.changePassword);
 // export default router;
-
 import { Router } from 'express';
 import { validate } from '../../middlewares/validate.js';
 import { authenticate } from '../../middlewares/auth.js';
+import { authLimiter, failedAttemptLimiter } from '../../middlewares/rateLimit.js';
 import { registerSchema, loginSchema, refreshSchema, changePasswordSchema } from './auth.schema.js';
 import * as controller from './auth.controller.js';
 
 const router = Router();
 
-router.post('/register', validate(registerSchema), controller.register);
-router.post('/login', validate(loginSchema), controller.login);
+// rate limits: registrations all count; for login and change-password only FAILED attempts count
+router.post('/register', authLimiter, validate(registerSchema), controller.register);
+router.post('/login', failedAttemptLimiter, validate(loginSchema), controller.login);
 router.post('/refresh', validate(refreshSchema), controller.refresh);
 router.post('/logout', validate(refreshSchema), controller.logout);
-router.post('/change-password', authenticate, validate(changePasswordSchema), controller.changePassword);
+router.post('/change-password', authenticate, failedAttemptLimiter, validate(changePasswordSchema), controller.changePassword);
 router.get('/me', authenticate, controller.me);
 
 export default router;

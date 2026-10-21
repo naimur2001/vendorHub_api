@@ -1,0 +1,28 @@
+services:
+  db:
+    image: postgres:16
+    container_name: vendors-hub-db
+    restart: unless-stopped
+    env_file: .env.production
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    container_name: vendors-hub-api
+    restart: unless-stopped
+    env_file: .env.production
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:4000:4000"
+    command: sh -c "npx prisma migrate deploy && node src/server.js"
+
+volumes:
+  pgdata:
