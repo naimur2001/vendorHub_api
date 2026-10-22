@@ -8,10 +8,15 @@ catch {
     exit 1
 }
 
-Write-Host 'Resetting the demo data (npx prisma db seed) ...'
-& npx prisma db seed | Out-Null
+if (-not (Test-Path 'prisma/seed.js')) {
+    Write-Host 'prisma/seed.js was not found. Run this from the project root.' -ForegroundColor Red
+    exit 1
+}
+
+Write-Host 'Resetting the demo data (prisma/seed.js) ...'
+& node --env-file=.env prisma/seed.js | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host 'Seeding failed. Run "npx prisma db seed" by hand to see the error.' -ForegroundColor Red
+    Write-Host 'Seeding failed. Run "node --env-file=.env prisma/seed.js" by hand to see the error.' -ForegroundColor Red
     exit 1
 }
 
