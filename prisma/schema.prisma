@@ -110,16 +110,21 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  refreshTokens RefreshToken[]
-  ownedShops    Shop[]            @relation("ShopOwner")
-  staffOf       ShopStaff[]
-  addresses     Address[]
-  cart          Cart?
-  checkouts     CheckoutSession[]
-  bargains      Bargain[]
-  reviews       Review[]
-  follows       ShopFollow[]
-  auditLogs     AuditLog[]
+  refreshTokens       RefreshToken[]
+  ownedShops          Shop[]               @relation("ShopOwner")
+  staffOf             ShopStaff[]
+  addresses           Address[]
+  cart                Cart?
+  checkouts           CheckoutSession[]
+  bargains            Bargain[]
+  reviews             Review[]
+  follows             ShopFollow[]
+  auditLogs           AuditLog[]
+  passwordResetTokens PasswordResetToken[]
+  notifications       Notification[]
+  fileUploads         FileUpload[]
+  returnRequests      ReturnRequest[]
+  returnMessages      ReturnMessage[]
 }
 
 model RefreshToken {
@@ -184,14 +189,16 @@ model Shop {
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
-  owner         User               @relation("ShopOwner", fields: [ownerId], references: [id])
-  market        Market?            @relation(fields: [marketId], references: [id])
-  staff         ShopStaff[]
-  verifications ShopVerification[]
-  listings      ShopListing[]
-  subOrders     SubOrder[]
-  reviews       Review[]
-  followers     ShopFollow[]
+  owner            User               @relation("ShopOwner", fields: [ownerId], references: [id])
+  market           Market?            @relation(fields: [marketId], references: [id])
+  staff            ShopStaff[]
+  verifications    ShopVerification[]
+  listings         ShopListing[]
+  subOrders        SubOrder[]
+  reviews          Review[]
+  followers        ShopFollow[]
+  returnPolicy     String?
+  returnWindowDays Int                @default(7)
 
   @@index([marketId])
   @@index([verificationLevel])
@@ -414,10 +421,12 @@ model SubOrder {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
-  checkout CheckoutSession @relation(fields: [checkoutId], references: [id])
-  shop     Shop            @relation(fields: [shopId], references: [id])
-  items    OrderItem[]
-  payments Payment[]
+  checkout    CheckoutSession @relation(fields: [checkoutId], references: [id])
+  shop        Shop            @relation(fields: [shopId], references: [id])
+  items       OrderItem[]
+  payments    Payment[]
+  completedAt DateTime?
+  returns     ReturnRequest[]
 
   @@index([shopId, status])
   @@index([checkoutId])
@@ -469,4 +478,106 @@ model Review {
 
   @@index([shopId, type])
   @@index([productId])
+}
+
+// ───────────── PHASE 3 ─────────────
+
+enum FilePurpose {
+  PUBLIC_IMAGE
+  PRIVATE_DOCUMENT
+}
+
+enum ReturnReason {
+  DEFECTIVE
+  WRONG_ITEM
+  NOT_AS_DESCRIBED
+  CHANGED_MIND
+  OTHER
+}
+
+enum ReturnStatus {
+  REQUESTED // waiting for the shop
+  REJECTED // the shop said no; the customer may escalate
+  ESCALATED // waiting for an admin
+  REFUNDED
+  CLOSED // an admin rejected it
+}
+
+enum MessageAuthorRole {
+  CUSTOMER
+  SHOP
+  ADMIN
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+}
+
+model FileUpload {
+  id           String      @id @default(uuid())
+  ownerId      String
+  purpose      FilePurpose
+  originalName String
+  storedName   String      @unique
+  mimeType     String
+  size         Int
+  createdAt    DateTime    @default(now())
+  owner        User        @relation(fields: [ownerId], references: [id])
+
+  @@index([ownerId])
+}
+
+model ReturnRequest {
+  id             String          @id @default(uuid())
+  subOrderId     String
+  customerId     String
+  reason         ReturnReason
+  description    String
+  status         ReturnStatus    @default(REQUESTED)
+  resolutionNote String?
+  resolvedById   String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  subOrder       SubOrder        @relation(fields: [subOrderId], references: [id])
+  customer       User            @relation(fields: [customerId], references: [id])
+  messages       ReturnMessage[]
+
+  @@index([subOrderId])
+  @@index([customerId])
+  @@index([status])
+}
+
+model ReturnMessage {
+  id            String            @id @default(uuid())
+  returnId      String
+  authorId      String
+  authorRole    MessageAuthorRole
+  body          String
+  createdAt     DateTime          @default(now())
+  returnRequest ReturnRequest     @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  author        User              @relation(fields: [authorId], references: [id])
+
+  @@index([returnId])
 }
