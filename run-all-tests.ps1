@@ -26,9 +26,11 @@ $suites = @(
     'test-bargain.ps1',
     'test-orders-reviews.ps1',
     'test-verification.ps1',
+    'test-dashboards.ps1',
+    'test-catalog-admin.ps1',
+    'test-users-staff.ps1',
     'test-security.ps1'
 )
-
 $results = @()
 foreach ($s in $suites) {
     if (-not (Test-Path ".\$s")) {

@@ -79,7 +79,16 @@ export async function placeOrders(userId, { shops: choices }) {
           },
         },
       });
-      if (!cart || cart.items.length === 0) throw new AppError(400, 'Your cart is empty');
+      // if (!cart || cart.items.length === 0) throw new AppError(400, 'Your cart is empty');
+        if (!cart || cart.items.length === 0) throw new AppError(400, 'Your cart is empty');
+
+        // a saved address can be used instead of typing one
+        for (const c of choices) {
+          if (!c.addressId) continue;
+          const saved = await tx.address.findFirst({ where: { id: c.addressId, userId } });
+          if (!saved) throw new AppError(400, 'Delivery address not found');
+          c.deliveryAddress = `${saved.line1}${saved.area ? `, ${saved.area}` : ''}, ${saved.city}. Phone: ${saved.phone}`;
+        }
 
       // 1. Re-check every item and group by shop. Prices are re-read here, never taken from the client.
       const byShop = new Map();

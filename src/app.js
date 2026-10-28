@@ -58,7 +58,9 @@ import fulfilmentRoutes from './modules/fulfilment/fulfilment.routes.js';
 import reviewRoutes from './modules/reviews/reviews.routes.js';
 import dashboardRoutes from './modules/dashboards/dashboards.routes.js';
 import adminRoutes from './modules/admin/admin.routes.js';
-
+import adminCatalogRoutes from './modules/adminCatalog/adminCatalog.routes.js';
+import userRoutes from './modules/users/users.routes.js';
+import staffRoutes from './modules/staff/staff.routes.js';
 
 export const app = express();
 
@@ -102,6 +104,9 @@ app.use('/api/v1', fulfilmentRoutes);
 app.use('/api/v1', reviewRoutes);
 app.use('/api/v1', dashboardRoutes);
 app.use('/api/v1', adminRoutes);
+app.use('/api/v1', adminCatalogRoutes);
+app.use('/api/v1', userRoutes);
+app.use('/api/v1', staffRoutes);
 
 
 app.use(notFound);
