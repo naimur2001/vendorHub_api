@@ -22,6 +22,9 @@ const schema = z.object({
   RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().positive().default(15),
   RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().positive().default(300),
   RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(10),
+  // mail and links
+  APP_URL: z.string().url().default('http://localhost:3000'), // the frontend address used in reset links
+  MAIL_MODE: z.enum(['log']).default('log'), // only the log driver exists for now
 });
 
 const parsed = schema.safeParse(process.env);

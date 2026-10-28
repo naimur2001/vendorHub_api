@@ -32,3 +32,12 @@ export const changePasswordSchema = z
     message: 'New password must be different from the old one',
     path: ['newPassword'],
   });
+
+  export const forgotPasswordSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(20).max(200),
+  newPassword: z.string().min(8).max(72),
+});

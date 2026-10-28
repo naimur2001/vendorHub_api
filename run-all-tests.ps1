@@ -29,6 +29,7 @@ $suites = @(
     'test-dashboards.ps1',
     'test-catalog-admin.ps1',
     'test-users-staff.ps1',
+    'test-password-reset.ps1',
     'test-security.ps1'
 )
 $results = @()

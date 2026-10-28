@@ -32,3 +32,14 @@ export const changePassword = async (req, res) => {
   await authService.changePassword(req.user.id, req.body);
   res.json({ success: true, data: { message: 'Password changed. Please log in again.' } });
 };
+
+
+export const forgotPassword = async (req, res) => {
+  await authService.forgotPassword(req.body);
+  res.json({ success: true, data: { message: 'If that email is registered, a reset link has been sent.' } });
+};
+
+export const resetPassword = async (req, res) => {
+  await authService.resetPassword(req.body);
+  res.json({ success: true, data: { message: 'Password updated. Please log in with your new password.' } });
+};
