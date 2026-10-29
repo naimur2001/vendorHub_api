@@ -23,6 +23,7 @@ if ($LASTEXITCODE -ne 0) {
 $suites = @(
     'test-cart.ps1',
     'test-checkout.ps1',
+    'test-split-orders.ps1',
     'test-bargain.ps1',
     'test-orders-reviews.ps1',
     'test-verification.ps1',
@@ -32,8 +33,7 @@ $suites = @(
     'test-password-reset.ps1',
     'test-uploads.ps1',
     'test-returns.ps1',
-    'test-security.ps1',
-    'test-split-orders.ps1',
+    'test-security.ps1'
 )
 $results = @()
 foreach ($s in $suites) {
