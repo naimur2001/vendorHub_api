@@ -35,7 +35,8 @@ $suites = @(
     'test-returns.ps1',
     'test-disputes.ps1',
     'test-notifications.ps1',
-    'test-security.ps1'
+    'test-security.ps1',
+    'test-shop-photos.ps1'
 )
 $results = @()
 foreach ($s in $suites) {

@@ -9,7 +9,9 @@ const slugify = (s) =>
 // Children first, parents last (foreign keys point child -> parent)
 async function clean() {
   await prisma.$transaction([
-    // Phase 3 tables first: they point at users and orders
+    // shop photos first: they point at shops and at uploads
+    prisma.shopPhoto.deleteMany(),
+    // Phase 3 tables: they point at users and orders
     prisma.returnMessage.deleteMany(),
     prisma.returnRequest.deleteMany(),
     prisma.notification.deleteMany(),
@@ -44,7 +46,6 @@ async function clean() {
     prisma.user.deleteMany(),
   ]);
 }
-
 async function main() {
   console.log('Seeding...');
   await clean();

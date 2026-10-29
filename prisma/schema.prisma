@@ -197,6 +197,7 @@ model Shop {
   subOrders        SubOrder[]
   reviews          Review[]
   followers        ShopFollow[]
+  photos           ShopPhoto[]
   returnPolicy     String?
   returnWindowDays Int                @default(7)
 
@@ -545,6 +546,7 @@ model FileUpload {
   size         Int
   createdAt    DateTime    @default(now())
   owner        User        @relation(fields: [ownerId], references: [id])
+  shopPhotos   ShopPhoto[]
 
   @@index([ownerId])
 }
@@ -580,4 +582,33 @@ model ReturnMessage {
   author        User              @relation(fields: [authorId], references: [id])
 
   @@index([returnId])
+}
+
+// ───────────── SHOP PHOTOS ─────────────
+
+enum ShopPhotoKind {
+  EXTERIOR // the shop front from outside
+  SIGNBOARD // the name board (the strongest proof)
+  INTERIOR // inside the shop
+  DISPLAY // shelves, counter, products on display
+  PANORAMA_360 // a 360-degree photo (2:1), shown in a panorama viewer
+  OTHER
+}
+
+model ShopPhoto {
+  id           String        @id @default(uuid())
+  shopId       String
+  fileId       String
+  url          String
+  kind         ShopPhotoKind
+  caption      String?
+  sortOrder    Int           @default(0)
+  isCover      Boolean       @default(false)
+  verifiedAt   DateTime? // set by an admin who checked the photo against the real shop
+  verifiedById String?
+  createdAt    DateTime      @default(now())
+  shop         Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  file         FileUpload    @relation(fields: [fileId], references: [id])
+
+  @@index([shopId, sortOrder])
 }

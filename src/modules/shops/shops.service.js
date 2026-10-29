@@ -55,14 +55,21 @@ export async function getMarket(slug) {
           shopNumber: true,
           addressLine: true,
           verificationLevel: true,
+          photos: { where: { isCover: true }, take: 1, select: { url: true, kind: true, verifiedAt: true } },
         },
       },
     },
   });
   if (!market) throw new AppError(404, 'Market not found');
-  return market;
+  // each shop card gets its cover photo (or null)
+  return {
+    ...market,
+    shops: market.shops.map(({ photos, ...s }) => ({
+      ...s,
+      coverPhoto: photos[0] ? { url: photos[0].url, kind: photos[0].kind, verified: photos[0].verifiedAt !== null } : null,
+    })),
+  };
 }
-
 // ---------- Storefront ----------
 
 export async function getShop(slug, userId) {
@@ -70,7 +77,8 @@ export async function getShop(slug, userId) {
     where: { slug, isActive: true },
     include: {
       market: { select: { id: true, name: true, slug: true } },
-      _count: { select: { followers: true, staff: true } },
+      _count: { select: { followers: true, staff: true, photos: true } },
+      photos: { where: { isCover: true }, take: 1, select: { url: true, kind: true, verifiedAt: true } },
     },
   });
   if (!shop) throw new AppError(404, 'Shop not found');
@@ -95,6 +103,7 @@ export async function getShop(slug, userId) {
       : null,
   ]);
 
+  const cover = shop.photos[0];
   return {
     id: shop.id,
     name: shop.name,
@@ -102,6 +111,8 @@ export async function getShop(slug, userId) {
     description: shop.description,
     logoUrl: shop.logoUrl,
     bannerUrl: shop.bannerUrl,
+    coverPhoto: cover ? { url: cover.url, kind: cover.kind, verified: cover.verifiedAt !== null } : null,
+    photoCount: shop._count.photos,
     address: {
       levelFloor: shop.levelFloor,
       shopNumber: shop.shopNumber,
