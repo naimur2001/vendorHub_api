@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { env } from '../../config/env.js';
 import { deriveAvailability } from '../../lib/availability.js';
+import { notifyNewOrders } from '../notifications/notifications.events.js';
 
 const DELIVERY_FEE = 60; // taka, charged once per shop that delivers
 
@@ -51,7 +52,7 @@ const formatOrder = (o) => ({
   })),
 });
 
-export async function placeOrders(userId, { shops: choices }) {
+async function placeOrdersInTransaction(userId, { shops: choices }) {
   const choiceIds = choices.map((c) => c.shopId);
   if (new Set(choiceIds).size !== choiceIds.length) {
     throw new AppError(400, 'Each shop can appear only once');
@@ -307,4 +308,11 @@ export async function payMock(userId, orderId) {
     prisma.subOrder.update({ where: { id: orderId }, data: { paymentStatus: 'PAID' } }),
   ]);
   return getOrder(userId, orderId);
+}
+
+// The transaction above saves the orders; the shops and the customer are told only AFTER it has committed.
+export async function placeOrders(userId, input) {
+  const result = await placeOrdersInTransaction(userId, input);
+  await notifyNewOrders(userId, result.checkoutId); // never throws
+  return result;
 }

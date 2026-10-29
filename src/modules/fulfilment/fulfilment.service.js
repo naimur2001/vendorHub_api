@@ -3,6 +3,7 @@ import { AppError } from '../../lib/errors.js';
 import { assertShopAccess } from '../../lib/shopAccess.js';
 import { deriveAvailability } from '../../lib/availability.js';
 import { getOrder as getCustomerOrder } from '../checkout/checkout.service.js';
+import { notifyStatusChange, notifyCustomerCancel } from '../notifications/notifications.events.js';
 
 // Which statuses an order may move to from each status.
 const TRANSITIONS = {
@@ -166,6 +167,7 @@ export async function changeStatus(user, shopId, orderId, { status, reason }) {
     }
     await logChange(tx, user.id, 'order.status_changed', orderId, order.status, status, reason);
   });
+  await notifyStatusChange(order, status, reason); // after the commit, never throws
   return getShopOrder(user, shopId, orderId);
 }
 
@@ -191,5 +193,6 @@ export async function cancelByCustomer(userId, orderId, reason) {
     await cancelEffects(tx, order);
     await logChange(tx, userId, 'order.cancelled_by_customer', orderId, 'PLACED', 'CANCELLED', reason);
   });
+  await notifyCustomerCancel(order, reason); // after the commit, never throws
   return getCustomerOrder(userId, orderId);
 }
