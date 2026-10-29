@@ -2,8 +2,11 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { assertShopAccess } from '../../lib/shopAccess.js';
 import { restock } from '../fulfilment/fulfilment.service.js';
+import { notifyReturn } from '../notifications/notifications.events.js';
 
 const DAY = 24 * 60 * 60 * 1000;
+// A return is "open" while someone still has to act on it. Messages are allowed only then.
+const OPEN = ['REQUESTED', 'REJECTED', 'ESCALATED'];
 
 const returnInclude = {
   subOrder: {
@@ -67,11 +70,19 @@ const present = (r, role) => ({
     createdAt: m.createdAt,
   })),
   // which buttons the UI should show for this viewer
-  actions: { respond: (role === 'SHOP' || role === 'ADMIN') && r.status === 'REQUESTED' },
+  actions: {
+    respond: (role === 'SHOP' || role === 'ADMIN') && r.status === 'REQUESTED',
+    escalate: role === 'CUSTOMER' && r.status === 'REJECTED',
+    resolve: role === 'ADMIN' && r.status === 'ESCALATED',
+    message: OPEN.includes(r.status),
+  },
 });
 
+const audit = (tx, actorId, action, id, meta) =>
+  tx.auditLog.create({ data: { actorId, action, entityType: 'ReturnRequest', entityId: id, meta } });
+
 // Mock refund until a real gateway exists. A paid online order is refunded online, a paid cash order
-// in cash at the shop; both are recorded as REFUNDED. Stock comes back only if the shop says so.
+// in cash at the shop; both are recorded as REFUNDED. Stock comes back only if asked.
 async function refund(tx, order, putBack) {
   if (order.paymentStatus === 'PAID') {
     await tx.subOrder.update({ where: { id: order.id }, data: { paymentStatus: 'REFUNDED' } });
@@ -111,17 +122,10 @@ export async function createReturn(user, orderId, { reason, description }) {
     const r = await tx.returnRequest.create({
       data: { subOrderId: orderId, customerId: user.id, reason, description },
     });
-    await tx.auditLog.create({
-      data: {
-        actorId: user.id,
-        action: 'return.requested',
-        entityType: 'ReturnRequest',
-        entityId: r.id,
-        meta: { orderId, reason },
-      },
-    });
+    await audit(tx, user.id, 'return.requested', r.id, { orderId, reason });
     return r;
   });
+  await notifyReturn(created.id, 'requested', user.id); // after the commit, never throws
   return getReturn(user, created.id);
 }
 
@@ -143,6 +147,27 @@ export async function listMine(user, { status, orderId, page, limit }) {
   };
 }
 
+// Only the customer, and only after the shop said no.
+export async function escalate(user, id, { reason }) {
+  const r = await prisma.returnRequest.findUnique({ where: { id }, select: { customerId: true, status: true } });
+  if (!r || r.customerId !== user.id) throw new AppError(404, 'Return request not found');
+  if (r.status !== 'REJECTED') {
+    throw new AppError(409, 'A return can be escalated only after the shop has rejected it');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const changed = await tx.returnRequest.updateMany({
+      where: { id, status: 'REJECTED' },
+      data: { status: 'ESCALATED' },
+    });
+    if (changed.count !== 1) throw new AppError(409, 'This return just changed. Refresh and try again.');
+    await tx.returnMessage.create({ data: { returnId: id, authorId: user.id, authorRole: 'CUSTOMER', body: reason } });
+    await audit(tx, user.id, 'return.escalated', id, { reason });
+  });
+  await notifyReturn(id, 'escalated', user.id);
+  return getReturn(user, id);
+}
+
 // ---------- everyone involved ----------
 
 export async function getReturn(user, id) {
@@ -150,6 +175,21 @@ export async function getReturn(user, id) {
   const role = r ? await viewerRole(user, r) : null;
   if (!role) throw new AppError(404, 'Return request not found');
   return present(r, role);
+}
+
+// Customer, shop team or admin can write while the return is open.
+export async function addMessage(user, id, { body }) {
+  const r = await prisma.returnRequest.findUnique({
+    where: { id },
+    select: { customerId: true, status: true, subOrder: { select: { shopId: true } } },
+  });
+  const role = r ? await viewerRole(user, r) : null;
+  if (!role) throw new AppError(404, 'Return request not found');
+  if (!OPEN.includes(r.status)) throw new AppError(409, `This return is ${r.status} and closed for messages`);
+
+  await prisma.returnMessage.create({ data: { returnId: id, authorId: user.id, authorRole: role, body } });
+  await notifyReturn(id, 'message', user.id);
+  return getReturn(user, id);
 }
 
 // ---------- shop ----------
@@ -188,15 +228,65 @@ export async function respond(user, id, { decision, note, restock: putBack }) {
     });
     if (changed.count !== 1) throw new AppError(409, 'This return just changed. Refresh and try again.');
     if (decision === 'APPROVE') await refund(tx, r.subOrder, putBack);
-    await tx.auditLog.create({
-      data: {
-        actorId: user.id,
-        action: decision === 'APPROVE' ? 'return.approved' : 'return.rejected',
-        entityType: 'ReturnRequest',
-        entityId: id,
-        meta: { note: note ?? null, ...(decision === 'APPROVE' && { restock: putBack }) },
-      },
+    // the note also joins the thread, so the full story stays readable after later decisions
+    if (note) {
+      await tx.returnMessage.create({
+        data: { returnId: id, authorId: user.id, authorRole: user.role === 'ADMIN' ? 'ADMIN' : 'SHOP', body: note },
+      });
+    }
+    await audit(tx, user.id, decision === 'APPROVE' ? 'return.approved' : 'return.rejected', id, {
+      note: note ?? null,
+      ...(decision === 'APPROVE' && { restock: putBack }),
     });
   });
+  await notifyReturn(id, decision === 'APPROVE' ? 'approved' : 'rejected', user.id);
   return getReturn(user, id);
+}
+
+// ---------- admin ----------
+
+// The dispute queue: by default the escalated returns, longest waiting first.
+export async function listDisputes({ status, page, limit }) {
+  const where = status === 'ALL' ? {} : { status: status ?? 'ESCALATED' };
+  const [total, rows] = await Promise.all([
+    prisma.returnRequest.count({ where }),
+    prisma.returnRequest.findMany({
+      where,
+      include: returnInclude,
+      orderBy: { updatedAt: 'asc' },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ]);
+  return {
+    items: rows.map((r) => present(r, 'ADMIN')),
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  };
+}
+
+// The final decision: APPROVE refunds (restock optional), REJECT closes.
+export async function resolve(admin, id, { decision, note, restock: putBack }) {
+  const r = await prisma.returnRequest.findUnique({ where: { id }, include: { subOrder: true } });
+  if (!r) throw new AppError(404, 'Return request not found');
+  if (r.status !== 'ESCALATED') {
+    throw new AppError(409, `Only an escalated return can be resolved (this one is ${r.status})`);
+  }
+
+  const next = decision === 'APPROVE' ? 'REFUNDED' : 'CLOSED';
+  await prisma.$transaction(async (tx) => {
+    const changed = await tx.returnRequest.updateMany({
+      where: { id, status: 'ESCALATED' },
+      data: { status: next, resolutionNote: note, resolvedById: admin.id },
+    });
+    if (changed.count !== 1) throw new AppError(409, 'This return just changed. Refresh and try again.');
+    if (decision === 'APPROVE') await refund(tx, r.subOrder, putBack);
+    await tx.returnMessage.create({ data: { returnId: id, authorId: admin.id, authorRole: 'ADMIN', body: note } });
+    await audit(tx, admin.id, 'return.resolved', id, {
+      decision,
+      note,
+      ...(decision === 'APPROVE' && { restock: putBack }),
+    });
+  });
+  await notifyReturn(id, 'resolved', admin.id);
+  return getReturn(admin, id);
 }

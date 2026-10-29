@@ -32,3 +32,25 @@ export const respondSchema = z
     message: 'A note is required when rejecting a return',
     path: ['note'],
   });
+
+// ---------- part B ----------
+
+export const messageSchema = z.object({
+  body: z.string().trim().min(2).max(2000),
+});
+
+export const escalateSchema = z.object({
+  reason: z.string().trim().min(10).max(1000),
+});
+
+export const disputesQuery = z.object({
+  status: z.enum([...statuses, 'ALL']).optional(), // default: ESCALATED (waiting for an admin)
+  page,
+  limit,
+});
+
+export const resolveSchema = z.object({
+  decision: z.enum(['APPROVE', 'REJECT']),
+  note: z.string().trim().min(5).max(500), // an admin always explains the final decision
+  restock: z.boolean().default(false),
+});
