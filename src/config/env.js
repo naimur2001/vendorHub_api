@@ -24,7 +24,12 @@ const schema = z.object({
   RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(10),
   // mail and links
   APP_URL: z.string().url().default('http://localhost:3000'), // the frontend address used in reset links
-  MAIL_MODE: z.enum(['log']).default('log'), // only the log driver exists for now
+  // MAIL_MODE: z.enum(['log']).default('log'), // only the log driver exists for now
+    MAIL_MODE: z.enum(['log']).default('log'), // only the log driver exists for now
+  // uploads
+  UPLOAD_DIR: z.string().default('./uploads'),
+  UPLOAD_MAX_MB: z.coerce.number().positive().max(20).default(5),
+  PUBLIC_API_URL: z.string().url().default('http://localhost:4000'), // used to build file links
 });
 
 const parsed = schema.safeParse(process.env);
