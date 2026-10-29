@@ -3,6 +3,7 @@ import { AppError } from '../../lib/errors.js';
 import { env } from '../../config/env.js';
 import { assertShopAccess } from '../../lib/shopAccess.js';
 import { getCart } from '../cart/cart.service.js';
+import { notifyBargain } from '../notifications/notifications.events.js';
 
 const MIN_OFFER_PERCENT = 70; // lowest offer a customer may make (Figma slider: 70%-100%)
 const MAX_OFFERS = 6; // offers + counter-offers allowed in one negotiation
@@ -80,15 +81,18 @@ const summarize = (b, actor) => {
 };
 
 // Loads a negotiation and closes it first if its time has run out.
+// Loads a negotiation and closes it first if its time has run out.
 async function loadBargain(id) {
   let b = await prisma.bargain.findUnique({ where: { id }, include: bargainInclude });
   if (b && LIVE.includes(b.status) && b.expiresAt < new Date()) {
+    let expiredNow = false;
     await prisma.$transaction(async (tx) => {
       const closed = await tx.bargain.updateMany({
         where: { id, status: b.status },
         data: { status: 'EXPIRED' },
       });
       if (closed.count === 1) {
+        expiredNow = true;
         await tx.bargainEvent.create({
           data: {
             bargainId: id,
@@ -98,11 +102,12 @@ async function loadBargain(id) {
         });
       }
     });
+    // only the request that really closed it sends the alert, so it is sent once
+    if (expiredNow) await notifyBargain(id, b.status === 'ACCEPTED' ? 'deal_expired' : 'expired', 'SYSTEM');
     b = await prisma.bargain.findUnique({ where: { id }, include: bargainInclude });
   }
   return b;
 }
-
 // Called every minute from server.js; also used before listing negotiations.
 export async function expireStaleBargains() {
   const stale = await prisma.bargain.findMany({
@@ -134,6 +139,8 @@ async function loadForActor(user, id) {
 }
 
 // Conditional update: if someone else changed the status first, nothing is written and we return 409.
+// Conditional update: if someone else changed the status first, nothing is written and we return 409.
+// Every accept, counter and decline goes through here, so the other side is told from ONE place.
 async function transition(b, data, events) {
   await prisma.$transaction(async (tx) => {
     const changed = await tx.bargain.updateMany({ where: { id: b.id, status: b.status }, data });
@@ -148,6 +155,12 @@ async function transition(b, data, events) {
       });
     }
   });
+
+  // after the commit (never throws): tell the other side what happened
+  let kind = 'countered';
+  if (data.status === 'ACCEPTED') kind = events.some((e) => e.actor === 'SYSTEM') ? 'auto_accepted' : 'accepted';
+  else if (data.status === 'DECLINED') kind = events[0].note === 'Withdrawn' ? 'withdrawn' : 'declined';
+  await notifyBargain(b.id, kind, events[0].actor);
 }
 
 const assertActive = (b) => {
@@ -255,6 +268,8 @@ export async function createBargain(user, { listingId, offer }) {
       },
     },
   });
+  
+  await notifyBargain(bargain.id, auto ? 'auto_accepted' : 'offer', 'CUSTOMER'); // after the save, never throws
   return getBargain(user, bargain.id);
 }
 

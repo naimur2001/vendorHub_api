@@ -10,6 +10,14 @@ const STATUS_TEXT = {
   CANCELLED: 'was cancelled by the shop',
 };
 
+// "PHYSICAL_SHOP_VERIFIED" -> "Physical Shop Verified"
+const readableLevel = (level) =>
+  level
+    .toLowerCase()
+    .split('_')
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(' ');
+
 // The owner and every staff member of a shop.
 export async function shopTeamIds(shopId) {
   const shop = await prisma.shop.findUnique({
@@ -138,5 +146,109 @@ export async function notifyReturn(returnId, event, actorId) {
     );
   } catch (err) {
     logger.error(err, 'could not send the return notification');
+  }
+}
+
+// ---------- bargains ----------
+
+// kind: offer, auto_accepted, countered, accepted, declined, withdrawn, expired, deal_expired.
+// actor: CUSTOMER or SHOP (the OTHER side is told) or SYSTEM (both sides are told).
+export async function notifyBargain(bargainId, kind, actor) {
+  try {
+    const b = await prisma.bargain.findUnique({
+      where: { id: bargainId },
+      select: {
+        id: true,
+        customerId: true,
+        currentOffer: true,
+        agreedPrice: true,
+        listPrice: true,
+        listing: {
+          select: { shopId: true, product: { select: { title: true } }, shop: { select: { name: true } } },
+        },
+      },
+    });
+    if (!b) return;
+    const team = await shopTeamIds(b.listing.shopId);
+    const item = b.listing.product.title;
+    const shop = b.listing.shop.name;
+    let to;
+    if (actor === 'CUSTOMER') to = team;
+    else if (actor === 'SHOP') to = [b.customerId];
+    else to = [b.customerId, ...team];
+
+    const text = {
+      offer: [`New offer for ${item}`, `${b.currentOffer} taka (list price ${b.listPrice}). Respond before it expires.`],
+      auto_accepted: [`Offer for ${item} accepted automatically`, `Agreed price: ${b.agreedPrice} taka (it met your minimum).`],
+      countered:
+        actor === 'SHOP'
+          ? [`${shop} sent a counter-offer`, `${item}: ${b.currentOffer} taka. Respond before it expires.`]
+          : [`New counter-offer for ${item}`, `${b.currentOffer} taka. Respond before it expires.`],
+      accepted:
+        actor === 'SHOP'
+          ? [`${shop} accepted your offer`, `${item}: ${b.agreedPrice} taka. Add it to your cart before the deal expires.`]
+          : [`Your counter-offer for ${item} was accepted`, `Agreed price: ${b.agreedPrice} taka.`],
+      declined: [`${shop} declined your offer`, `${item}. You can make a new offer.`],
+      withdrawn: [`An offer for ${item} was withdrawn`, 'The customer withdrew the offer.'],
+      expired: [`The offer for ${item} expired`, 'Nobody responded in time.'],
+      deal_expired: [`The agreed price for ${item} expired`, 'The deal was not used in time.'],
+    }[kind];
+    if (!text) return;
+
+    await notify(to, {
+      type: `BARGAIN_${kind.toUpperCase()}`,
+      title: text[0],
+      body: text[1],
+      data: { bargainId: b.id },
+    });
+  } catch (err) {
+    logger.error(err, 'could not send the bargain notification');
+  }
+}
+
+// ---------- verification ----------
+
+// kind: submitted, resubmitted (to admins); approved, correction, rejected, revoked (to the shop owner).
+export async function notifyVerification(shopId, kind, { level, note, verificationId } = {}) {
+  try {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId }, select: { name: true, ownerId: true } });
+    if (!shop) return;
+    const data = { shopId, ...(verificationId && { verificationId }) };
+
+    if (kind === 'submitted' || kind === 'resubmitted') {
+      await notify(await adminIds(), {
+        type: `VERIFICATION_${kind.toUpperCase()}`,
+        title:
+          kind === 'submitted'
+            ? `${shop.name} asked for ${readableLevel(level)}`
+            : `${shop.name} sent corrected documents`,
+        body: 'A request is waiting in the verification queue.',
+        data,
+      });
+      return;
+    }
+
+    const text = {
+      approved: [
+        `${shop.name} is now ${level ? readableLevel(level) : 'verified'}`,
+        'Your verification request was approved. The new badge is shown on your shop.',
+      ],
+      correction: [
+        'Your verification request needs corrections',
+        note ? `Admin note: ${note}` : 'Upload new files for the flagged documents.',
+      ],
+      rejected: ['Your verification request was rejected', note ? `Reason: ${note}` : 'Open the request for details.'],
+      revoked: [`The verification of ${shop.name} was revoked`, note ? `Reason: ${note}` : 'Contact support for details.'],
+    }[kind];
+    if (!text) return;
+
+    await notify([shop.ownerId], {
+      type: `VERIFICATION_${kind.toUpperCase()}`,
+      title: text[0],
+      body: text[1],
+      data,
+    });
+  } catch (err) {
+    logger.error(err, 'could not send the verification notification');
   }
 }
