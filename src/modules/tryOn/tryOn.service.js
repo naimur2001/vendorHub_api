@@ -92,6 +92,7 @@ export async function tryOnInfo(slug) {
     startView: 'FRONT',
     createOrder: available ? ['FRONT', 'LEFT_45', 'RIGHT_45', 'LEFT', 'RIGHT'] : [],
     dailyLimit: env.TRYON_DAILY_LIMIT,
+    mock: env.TRYON_MODE === 'mock', // true = pictures are not real AI (development and tests)
     note: 'AI preview: fit and colour may differ. Your photo is not stored by Vendors Hub.',
   };
 }

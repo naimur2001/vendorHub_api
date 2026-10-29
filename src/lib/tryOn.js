@@ -26,7 +26,13 @@ export async function runTryOn({ person, garment, reference, prompt }) {
     });
   } catch (err) {
     logger.warn({ status: err.status, message: err.message }, 'try-on AI call failed'); // never log the images
-    if (err.status === 429) throw new AppError(429, 'The free AI quota is used up for now. Please try again later.');
+    // if (err.status === 429) throw new AppError(429, 'The free AI quota is used up for now. Please try again later.');
+        if (err.status === 429) throw new AppError(429, 'The free AI quota is used up for now. Please try again later.');
+    // a wrong or missing key, or a model name Google does not know: a setup problem, not a temporary one
+    if ([400, 401, 403, 404].includes(err.status)) {
+      throw new AppError(503, 'Virtual try-on is not configured correctly. Check GEMINI_API_KEY and GEMINI_IMAGE_MODEL.');
+    }
+    
     throw new AppError(502, 'The AI service could not create the picture. Please try again.');
   }
 

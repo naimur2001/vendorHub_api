@@ -133,6 +133,12 @@ $r = Call 'GET' "/products/$shirtSlug/try-on" $null $null
 Check 'try-on is now available' $r.json.data.available $true
 Check 'five views are offered' @($r.json.data.views).Count 5
 Check 'the roll starts on the front' $r.json.data.startView 'FRONT'
+if ($r.json.data.mock -ne $true) {
+    Write-Host 'STOP: the server is not in mock mode (TRYON_MODE=gemini). This test would use your real AI quota.' -ForegroundColor Red
+    Write-Host 'Set TRYON_MODE=mock in .env, stop the server (Ctrl+C), run "npm run dev" again, then run this test.' -ForegroundColor Red
+    exit 1
+}
+
 
 # ---- 2. input checks ----
 $r = TryOn $null $shirtId 'FRONT' $photo 'image/png' $null
