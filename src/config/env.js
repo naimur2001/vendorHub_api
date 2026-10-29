@@ -35,7 +35,16 @@ const schema = z.object({
   TRYON_MODE: z.enum(['mock', 'gemini']).default('mock'),
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_IMAGE_MODEL: z.string().default('gemini-2.5-flash-image'),
+  // TRYON_DAILY_LIMIT: z.coerce.number().int().positive().default(25), // pictures per customer per day (5 rolls of 5 frames)
   TRYON_DAILY_LIMIT: z.coerce.number().int().positive().default(25), // pictures per customer per day (5 rolls of 5 frames)
+  // session cookie for the website (refresh token in an httpOnly cookie)
+  COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'), // "none" only if the frontend is on a different site
+  COOKIE_SECURE: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')), // unset = on in production only
+  COOKIE_DOMAIN: z.string().optional(), // unset = the API's own host (usually right)
+
 });
 
 const parsed = schema.safeParse(process.env);

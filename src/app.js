@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import pinoHttp from 'pino-http';
 import { env } from './config/env.js';
@@ -39,8 +40,11 @@ const allowedOrigins = env.CORS_ORIGINS.split(',')
   .filter(Boolean);
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } })); // API data and images must be readable by the frontend (another origin)
-app.use(cors({ origin: allowedOrigins.length > 0 ? allowedOrigins : true })); // empty list = any origin (development)
+// credentials: true lets the website send and receive the session cookie.
+// With an empty list any origin is allowed (development); in production list the frontend's address.
+app.use(cors({ origin: allowedOrigins.length > 0 ? allowedOrigins : true, credentials: true }));
 app.use(express.json({ limit: '100kb' }));
+app.use(cookieParser());
 app.use(
   pinoHttp({
     logger,
@@ -99,6 +103,7 @@ app.use('/api/v1', returnRoutes);
 app.use('/api/v1', notificationRoutes);
 app.use('/api/v1', shopPhotoRoutes);
 app.use('/api/v1', tryOnRoutes);
+
 
 app.use(notFound);
 app.use(errorHandler);

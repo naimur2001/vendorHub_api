@@ -38,7 +38,9 @@ $suites = @(
     'test-shop-photos.ps1',
     'test-notify-events.ps1',
     'test-security.ps1',
-    'test-try-on.ps1'
+    'test-try-on.ps1',
+    'test-cookie-auth.ps1'
+
 )
 
 $results = @()
