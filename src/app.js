@@ -24,6 +24,7 @@ import adminCatalogRoutes from './modules/adminCatalog/adminCatalog.routes.js';
 import userRoutes from './modules/users/users.routes.js';
 import staffRoutes from './modules/staff/staff.routes.js';
 import uploadRoutes from './modules/uploads/uploads.routes.js';
+import returnRoutes from './modules/returns/returns.routes.js';
 
 export const app = express();
 
@@ -91,6 +92,7 @@ app.use('/api/v1', adminCatalogRoutes);
 app.use('/api/v1', userRoutes);
 app.use('/api/v1', staffRoutes);
 app.use('/api/v1', uploadRoutes);
+app.use('/api/v1', returnRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

@@ -113,6 +113,7 @@ export async function getShop(slug, userId) {
     verification: { level: shop.verificationLevel, lastAuditedAt: shop.lastAuditedAt },
     supportsDelivery: shop.supportsDelivery,
     supportsPickup: shop.supportsPickup,
+    returnPolicy: { text: shop.returnPolicy, windowDays: shop.returnWindowDays },
     stats: {
       ratingAverage: round1(rating._avg.rating),
       reviewCount: rating._count.rating,

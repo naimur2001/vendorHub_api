@@ -32,6 +32,8 @@ export const createShopSchema = z.object({
   longitude: z.number().min(-180).max(180).optional(),
   supportsDelivery: z.boolean().default(true),
   supportsPickup: z.boolean().default(true),
+  returnPolicy: z.string().trim().max(2000).nullable().optional(),
+  returnWindowDays: z.number().int().min(0).max(60).optional(),
 });
 
 //Only the owner or an admin can edit the shop profile. Staff can manage listings but not the profile. The schema uses .strict(), so a body containing verificationLevel, ownerId, or slug is rejected with a 400 instead of silently ignored. That prevents an owner from verifying their own shop.
@@ -50,6 +52,8 @@ export const updateShopSchema = z
     longitude: z.number().min(-180).max(180).nullable().optional(),
     supportsDelivery: z.boolean().optional(),
     supportsPickup: z.boolean().optional(),
+    returnPolicy: z.string().trim().max(2000).nullable().optional(),
+    returnWindowDays: z.number().int().min(0).max(60).optional(),
   })
   .strict()
   .refine((o) => Object.keys(o).length > 0, { message: 'Provide at least one field to update' });

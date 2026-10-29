@@ -54,7 +54,7 @@ const formatForShop = (o) => ({
 });
 
 // Puts the stock of a cancelled order back and re-derives the public availability.
-async function restock(tx, orderId) {
+export async function restock(tx, orderId) {
   const items = await tx.orderItem.findMany({ where: { subOrderId: orderId } });
   for (const item of items) {
     const listing = await tx.shopListing.findUnique({
@@ -155,6 +155,11 @@ export async function changeStatus(user, shopId, orderId, { status, reason }) {
       throw new AppError(409, 'This order just changed. Refresh and try again.');
     }
     if (status === 'CANCELLED') await cancelEffects(tx, order);
+   
+        // the moment of completion starts the return window
+    if (status === 'COMPLETED') {
+      await tx.subOrder.update({ where: { id: orderId }, data: { completedAt: new Date() } });
+    }
     // cash is collected when the customer receives the goods
     if (status === 'COMPLETED' && order.paymentMethod !== 'ONLINE') {
       await tx.subOrder.update({ where: { id: orderId }, data: { paymentStatus: 'PAID' } });
