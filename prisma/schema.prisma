@@ -278,9 +278,11 @@ model Category {
   name     String
   slug     String     @unique
   parentId String?
+  virtualTryOn Boolean    @default(false) // admin switch: customers may try products of this category on
   parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
   children Category[] @relation("CategoryTree")
   products Product[]
+  
 }
 
 model Brand {

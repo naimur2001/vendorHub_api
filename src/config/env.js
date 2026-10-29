@@ -29,7 +29,13 @@ const schema = z.object({
   // uploads
   UPLOAD_DIR: z.string().default('./uploads'),
   UPLOAD_MAX_MB: z.coerce.number().positive().max(20).default(5),
-  PUBLIC_API_URL: z.string().url().default('http://localhost:4000'), // used to build file links
+  // PUBLIC_API_URL: z.string().url().default('http://localhost:4000'), // used to build file links
+    PUBLIC_API_URL: z.string().url().default('http://localhost:4000'), // used to build file links
+  // virtual try-on: "mock" for development and tests (no AI, no cost), "gemini" for real pictures
+  TRYON_MODE: z.enum(['mock', 'gemini']).default('mock'),
+  GEMINI_API_KEY: z.string().optional(),
+  GEMINI_IMAGE_MODEL: z.string().default('gemini-2.5-flash-image'),
+  TRYON_DAILY_LIMIT: z.coerce.number().int().positive().default(25), // pictures per customer per day (5 rolls of 5 frames)
 });
 
 const parsed = schema.safeParse(process.env);

@@ -27,6 +27,7 @@ import uploadRoutes from './modules/uploads/uploads.routes.js';
 import returnRoutes from './modules/returns/returns.routes.js';
 import notificationRoutes from './modules/notifications/notifications.routes.js';
 import shopPhotoRoutes from './modules/shopPhotos/shopPhotos.routes.js';
+import tryOnRoutes from './modules/tryOn/tryOn.routes.js';
 
 export const app = express();
 
@@ -97,6 +98,7 @@ app.use('/api/v1', uploadRoutes);
 app.use('/api/v1', returnRoutes);
 app.use('/api/v1', notificationRoutes);
 app.use('/api/v1', shopPhotoRoutes);
+app.use('/api/v1', tryOnRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
