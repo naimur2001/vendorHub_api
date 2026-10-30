@@ -23,14 +23,26 @@ if ($LASTEXITCODE -ne 0) {
 $suites = @(
     'test-cart.ps1',
     'test-checkout.ps1',
+    'test-split-orders.ps1',
     'test-bargain.ps1',
     'test-orders-reviews.ps1',
     'test-verification.ps1',
     'test-dashboards.ps1',
     'test-catalog-admin.ps1',
     'test-users-staff.ps1',
+    'test-password-reset.ps1',
+    'test-uploads.ps1',
+    'test-returns.ps1',
+    'test-disputes.ps1',
+    'test-notifications.ps1',
+    'test-shop-photos.ps1',
+    'test-notify-events.ps1',
+    'test-try-on.ps1',
+    'test-cookie-auth.ps1',
+    'test-openapi.ps1',
     'test-security.ps1'
 )
+
 $results = @()
 foreach ($s in $suites) {
     if (-not (Test-Path ".\$s")) {

@@ -3,7 +3,10 @@ import crypto from 'node:crypto';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { signAccessToken } from '../../lib/jwt.js';
+// import { env } from '../../config/env.js';
 import { env } from '../../config/env.js';
+import { sendMail } from '../../lib/mailer.js';
+import { logger } from '../../lib/logger.js';
 
 // We store only a hash of the refresh token, so a DB leak does not leak usable tokens.
 const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
@@ -96,4 +99,85 @@ export async function changePassword(userId, { oldPassword, newPassword }) {
       data: { revokedAt: new Date() },
     }),
   ]);
+}
+
+
+
+
+
+
+
+
+
+
+const RESET_TOKEN_MINUTES = 60;
+
+// Always succeeds from the caller's point of view, so nobody can find out which emails are registered.
+export async function forgotPassword({ email }) {
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user || !user.isActive) return;
+
+  const token = crypto.randomBytes(48).toString('hex');
+  await prisma.$transaction([
+    // older unused links stop working
+    prisma.passwordResetToken.updateMany({
+      where: { userId: user.id, usedAt: null },
+      data: { usedAt: new Date() },
+    }),
+    // only the hash of the token is stored
+    prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: hashToken(token),
+        expiresAt: new Date(Date.now() + RESET_TOKEN_MINUTES * 60 * 1000),
+      },
+    }),
+  ]);
+
+  const link = `${env.APP_URL}/reset-password?token=${token}`;
+  try {
+    await sendMail({
+      to: user.email,
+      subject: 'Reset your Vendors Hub password',
+      text: [
+        `Hello ${user.name},`,
+        '',
+        'We received a request to reset your Vendors Hub password.',
+        `Open this link within ${RESET_TOKEN_MINUTES} minutes to choose a new password:`,
+        link,
+        '',
+        'If you did not ask for this, ignore this message. Your password stays the same.',
+      ].join('\n'),
+    });
+  } catch (err) {
+    // a mail problem must not change the answer (that would reveal that the email exists)
+    logger.error(err, 'could not send the password reset mail');
+  }
+}
+
+export async function resetPassword({ token, newPassword }) {
+  const record = await prisma.passwordResetToken.findUnique({
+    where: { tokenHash: hashToken(token) },
+    include: { user: true },
+  });
+  if (!record || record.usedAt || record.expiresAt < new Date() || !record.user.isActive) {
+    throw new AppError(400, 'Invalid or expired reset link');
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await prisma.$transaction(async (tx) => {
+    // conditional update: if two requests use the same link, only the first one wins
+    const used = await tx.passwordResetToken.updateMany({
+      where: { id: record.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    if (used.count !== 1) throw new AppError(400, 'Invalid or expired reset link');
+
+    await tx.user.update({ where: { id: record.userId }, data: { passwordHash } });
+    // every device is logged out
+    await tx.refreshToken.updateMany({
+      where: { userId: record.userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  });
 }

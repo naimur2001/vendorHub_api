@@ -9,12 +9,22 @@ const slugify = (s) =>
 // Children first, parents last (foreign keys point child -> parent)
 async function clean() {
   await prisma.$transaction([
+    // shop photos first: they point at shops and at uploads
+    prisma.shopPhoto.deleteMany(),
+    // Phase 3 tables: they point at users and orders
+    prisma.returnMessage.deleteMany(),
+    prisma.returnRequest.deleteMany(),
+    prisma.notification.deleteMany(),
+    prisma.passwordResetToken.deleteMany(),
+    prisma.fileUpload.deleteMany(),
+    // orders and carts
     prisma.payment.deleteMany(),
     prisma.orderItem.deleteMany(),
     prisma.subOrder.deleteMany(),
     prisma.checkoutSession.deleteMany(),
     prisma.cartItem.deleteMany(),
     prisma.cart.deleteMany(),
+    // bargains, reviews, shop relations
     prisma.bargainEvent.deleteMany(),
     prisma.bargain.deleteMany(),
     prisma.review.deleteMany(),
@@ -23,18 +33,19 @@ async function clean() {
     prisma.verificationDocument.deleteMany(),
     prisma.shopVerification.deleteMany(),
     prisma.auditLog.deleteMany(),
+    // catalog and shops
     prisma.shopListing.deleteMany(),
     prisma.product.deleteMany(),
     prisma.brand.deleteMany(),
     prisma.category.deleteMany(),
     prisma.shop.deleteMany(),
     prisma.market.deleteMany(),
+    // users last: almost everything points at them
     prisma.address.deleteMany(),
     prisma.refreshToken.deleteMany(),
     prisma.user.deleteMany(),
   ]);
 }
-
 async function main() {
   console.log('Seeding...');
   await clean();

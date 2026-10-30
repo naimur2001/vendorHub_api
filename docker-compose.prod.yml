@@ -26,3 +26,5 @@ services:
 
 volumes:
   pgdata:
+  uploads:/app/uploads
+  

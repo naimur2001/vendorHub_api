@@ -22,6 +22,32 @@ const schema = z.object({
   RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().positive().default(15),
   RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().positive().default(300),
   RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(10),
+  // mail and links
+  APP_URL: z.string().url().default('http://localhost:3000'), // the frontend address used in reset links
+  // MAIL_MODE: z.enum(['log']).default('log'), // only the log driver exists for now
+    MAIL_MODE: z.enum(['log']).default('log'), // only the log driver exists for now
+  // uploads
+  UPLOAD_DIR: z.string().default('./uploads'),
+  UPLOAD_MAX_MB: z.coerce.number().positive().max(20).default(5),
+  // PUBLIC_API_URL: z.string().url().default('http://localhost:4000'), // used to build file links
+    PUBLIC_API_URL: z.string().url().default('http://localhost:4000'), // used to build file links
+  // virtual try-on: "mock" for development and tests (no AI, no cost), "gemini" for real pictures
+  TRYON_MODE: z.enum(['mock', 'gemini']).default('mock'),
+  GEMINI_API_KEY: z.string().optional(),
+  GEMINI_IMAGE_MODEL: z.string().default('gemini-2.5-flash-image'),
+  // TRYON_DAILY_LIMIT: z.coerce.number().int().positive().default(25), // pictures per customer per day (5 rolls of 5 frames)
+  TRYON_DAILY_LIMIT: z.coerce.number().int().positive().default(25), // pictures per customer per day (5 rolls of 5 frames)
+  // session cookie for the website (refresh token in an httpOnly cookie)
+  COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'), // "none" only if the frontend is on a different site
+  COOKIE_SECURE: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')), // unset = on in production only
+  // COOKIE_DOMAIN: z.string().optional(), // unset = the API's own host (usually right)
+    COOKIE_DOMAIN: z.string().optional(), // unset = the API's own host (usually right)
+  // API documentation at /api/docs and /api/openapi.json
+  API_DOCS: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+
 });
 
 const parsed = schema.safeParse(process.env);

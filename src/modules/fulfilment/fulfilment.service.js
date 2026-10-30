@@ -3,6 +3,7 @@ import { AppError } from '../../lib/errors.js';
 import { assertShopAccess } from '../../lib/shopAccess.js';
 import { deriveAvailability } from '../../lib/availability.js';
 import { getOrder as getCustomerOrder } from '../checkout/checkout.service.js';
+import { notifyStatusChange, notifyCustomerCancel } from '../notifications/notifications.events.js';
 
 // Which statuses an order may move to from each status.
 const TRANSITIONS = {
@@ -54,7 +55,7 @@ const formatForShop = (o) => ({
 });
 
 // Puts the stock of a cancelled order back and re-derives the public availability.
-async function restock(tx, orderId) {
+export async function restock(tx, orderId) {
   const items = await tx.orderItem.findMany({ where: { subOrderId: orderId } });
   for (const item of items) {
     const listing = await tx.shopListing.findUnique({
@@ -155,12 +156,18 @@ export async function changeStatus(user, shopId, orderId, { status, reason }) {
       throw new AppError(409, 'This order just changed. Refresh and try again.');
     }
     if (status === 'CANCELLED') await cancelEffects(tx, order);
+   
+        // the moment of completion starts the return window
+    if (status === 'COMPLETED') {
+      await tx.subOrder.update({ where: { id: orderId }, data: { completedAt: new Date() } });
+    }
     // cash is collected when the customer receives the goods
     if (status === 'COMPLETED' && order.paymentMethod !== 'ONLINE') {
       await tx.subOrder.update({ where: { id: orderId }, data: { paymentStatus: 'PAID' } });
     }
     await logChange(tx, user.id, 'order.status_changed', orderId, order.status, status, reason);
   });
+  await notifyStatusChange(order, status, reason); // after the commit, never throws
   return getShopOrder(user, shopId, orderId);
 }
 
@@ -186,5 +193,6 @@ export async function cancelByCustomer(userId, orderId, reason) {
     await cancelEffects(tx, order);
     await logChange(tx, userId, 'order.cancelled_by_customer', orderId, 'PLACED', 'CANCELLED', reason);
   });
+  await notifyCustomerCancel(order, reason); // after the commit, never throws
   return getCustomerOrder(userId, orderId);
 }

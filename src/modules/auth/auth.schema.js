@@ -17,9 +17,17 @@ export const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-export const refreshSchema = z.object({
-  refreshToken: z.string().min(1),
-});
+// export const refreshSchema = z.object({
+//   refreshToken: z.string().min(1),
+// });
+
+// The refresh token comes in the JSON body (native apps, scripts) OR in the session cookie (website),
+// so the body field is optional now. An empty body becomes {}.
+export const refreshSchema = z
+  .object({
+    refreshToken: z.string().min(1).optional(),
+  })
+  .default({});
 
 
 //new for change password
@@ -32,3 +40,12 @@ export const changePasswordSchema = z
     message: 'New password must be different from the old one',
     path: ['newPassword'],
   });
+
+  export const forgotPasswordSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(20).max(200),
+  newPassword: z.string().min(8).max(72),
+});
