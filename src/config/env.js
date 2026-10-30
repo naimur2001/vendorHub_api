@@ -43,7 +43,10 @@ const schema = z.object({
     .enum(['true', 'false'])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')), // unset = on in production only
-  COOKIE_DOMAIN: z.string().optional(), // unset = the API's own host (usually right)
+  // COOKIE_DOMAIN: z.string().optional(), // unset = the API's own host (usually right)
+    COOKIE_DOMAIN: z.string().optional(), // unset = the API's own host (usually right)
+  // API documentation at /api/docs and /api/openapi.json
+  API_DOCS: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
 
 });
 

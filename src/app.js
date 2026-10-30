@@ -5,6 +5,8 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import pinoHttp from 'pino-http';
 import { env } from './config/env.js';
+import swaggerUi from 'swagger-ui-express';
+import { loadOpenApi } from './docs/openapi.js';
 import { logger } from './lib/logger.js';
 import { prisma } from './lib/prisma.js';
 import { notFound, errorHandler } from './middlewares/errorHandler.js';
@@ -34,6 +36,14 @@ export const app = express();
 
 // Behind Nginx or a load balancer: trust its X-Forwarded-For so rate limiting sees real client IPs
 app.set('trust proxy', env.TRUST_PROXY);
+
+// API documentation. Placed before helmet: Swagger UI needs its own scripts and styles, and the
+// API's strict security headers are meant for the API answers, not for this documentation page.
+if (env.API_DOCS) {
+  const openapi = loadOpenApi();
+  app.get('/api/openapi.json', (req, res) => res.json(openapi));
+  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openapi, { swaggerOptions: { persistAuthorization: true } }));
+}
 
 const allowedOrigins = env.CORS_ORIGINS.split(',')
   .map((o) => o.trim())

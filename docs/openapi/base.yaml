@@ -1,0 +1,185 @@
+openapi: 3.0.3
+info:
+  title: Vendors Hub API
+  version: 1.0.0
+  description: |
+    Multi-vendor marketplace of verified physical shops in Bangladesh.
+
+    - Money is whole taka (integers).
+    - Every answer has the shape `{ "success": true, "data": ... }`; lists add `meta.pagination`.
+    - Every error has the shape `{ "success": false, "error": { "message": "...", "details": ... } }`.
+    - Login: send `Authorization: Bearer <accessToken>` (valid 15 minutes). Use the Authorize button.
+    - Website (cookie mode): add the header `X-Auth-Mode: cookie` to register, login, refresh and logout.
+      The refresh token is then kept in an httpOnly cookie and left out of the JSON.
+servers:
+  - url: /
+    description: This server
+tags:
+  - name: Health
+    description: Is the API and its database running
+  - name: Auth
+    description: Accounts, login sessions and passwords
+  - name: Catalog
+    description: Categories, brands, products and the shops selling them
+  - name: Markets
+    description: Malls and markets
+  - name: Shops
+    description: Shop storefronts and shop profiles
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: The accessToken from register, login or refresh.
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: vh_refresh
+      description: "Website only: the httpOnly refresh cookie. It counts only together with the header X-Auth-Mode set to cookie."
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
+    XAuthMode:
+      name: X-Auth-Mode
+      in: header
+      required: false
+      description: Send "cookie" from the website to keep the refresh token in an httpOnly cookie.
+      schema:
+        type: string
+        enum: [cookie]
+  responses:
+    BadRequest:
+      description: The input is invalid (error.details lists the fields).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Not logged in, or the token expired.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Logged in, but not allowed to do this.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Not found (also the answer for other people's private data).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: The request conflicts with the current state (for example a duplicate).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TooManyRequests:
+      description: Too many requests (rate limit or a daily limit).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+              example: Validation failed
+            details:
+              description: Extra information, for example the invalid fields.
+    Message:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            message:
+              type: string
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+    Availability:
+      type: string
+      enum: [IN_STOCK, AVAILABLE, LIMITED, OUT_OF_STOCK]
+    VerificationLevel:
+      type: string
+      enum: [UNVERIFIED, DOCUMENTS_VERIFIED, BUSINESS_VERIFIED, PHYSICAL_SHOP_VERIFIED, TRUSTED_VENDOR]
+    Role:
+      type: string
+      enum: [CUSTOMER, SHOP_OWNER, SHOP_STAFF, ADMIN]
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+          example: '01712345678'
+        role:
+          $ref: '#/components/schemas/Role'
+        avatarUrl:
+          type: string
+          nullable: true
+    Session:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        accessToken:
+          type: string
+          description: JWT, valid for 15 minutes.
+        refreshToken:
+          type: string
+          description: JSON mode only. In cookie mode it is in the httpOnly cookie and missing here.
+    SessionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/Session'
