@@ -39,7 +39,9 @@ foreach ($p in $spec.paths.PSObject.Properties) {
     }
 }
 Write-Host "INFO  $($ops.Count) operations documented"
-Check 'at least the 68 part-1 and part-2 operations are documented' ($ops.Count -ge 68) $true
+Check 'all 123 operations are documented' $ops.Count 123
+Check 'returns are documented' ($ops -contains 'POST /api/v1/orders/{orderId}/returns') $true
+Check 'try-on is documented' ($ops -contains 'POST /api/v1/try-on') $true
 Check 'checkout is documented' ($ops -contains 'POST /api/v1/checkout') $true
 Check 'the admin verification queue is documented' ($ops -contains 'GET /api/v1/admin/verifications') $true
 Check 'the login endpoint is documented' ($ops -contains 'POST /api/v1/auth/login') $true

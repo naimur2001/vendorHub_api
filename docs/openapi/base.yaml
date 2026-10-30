@@ -39,6 +39,24 @@ tags:
     description: Shop verification requests and the admin review queue
   - name: Reviews
     description: Product reviews and shop trust reviews (completed orders only)
+  - name: Dashboards
+    description: One landing page of numbers and to-do items per kind of user
+  - name: Admin
+    description: Vendors, reports, catalog management and users (admin only)
+  - name: Profile
+    description: My profile and saved addresses
+  - name: Staff
+    description: A shop's team (managed by the owner)
+  - name: Uploads
+    description: Public images and private documents
+  - name: Returns
+    description: Return requests, the message thread, escalation and the admin decision
+  - name: Notifications
+    description: The in-app notification list and bell
+  - name: Shop photos
+    description: The trust gallery of the physical shop, with 360 panoramas
+  - name: Try-on
+    description: AI virtual try-on (5-frame roll, nothing stored)
 components:
   securitySchemes:
     bearerAuth:
