@@ -39,7 +39,9 @@ foreach ($p in $spec.paths.PSObject.Properties) {
     }
 }
 Write-Host "INFO  $($ops.Count) operations documented"
-Check 'at least the 25 part-1 operations are documented' ($ops.Count -ge 25) $true
+Check 'at least the 68 part-1 and part-2 operations are documented' ($ops.Count -ge 68) $true
+Check 'checkout is documented' ($ops -contains 'POST /api/v1/checkout') $true
+Check 'the admin verification queue is documented' ($ops -contains 'GET /api/v1/admin/verifications') $true
 Check 'the login endpoint is documented' ($ops -contains 'POST /api/v1/auth/login') $true
 Check 'the product page is documented' ($ops -contains 'GET /api/v1/products/{slug}') $true
 Check 'the bearer login method is defined' ([bool]$spec.components.securitySchemes.bearerAuth) $true

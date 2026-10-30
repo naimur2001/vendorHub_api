@@ -25,6 +25,20 @@ tags:
     description: Malls and markets
   - name: Shops
     description: Shop storefronts and shop profiles
+  - name: Listings
+    description: A shop's own offers (price, stock, bargaining) - shop team only
+  - name: Cart
+    description: The customer's cart, grouped by shop
+  - name: Orders
+    description: Checkout (one order per shop), my orders, mock payment, cancelling
+  - name: Fulfilment
+    description: A shop's incoming orders and their status
+  - name: Bargains
+    description: Structured price negotiation between a customer and a shop
+  - name: Verification
+    description: Shop verification requests and the admin review queue
+  - name: Reviews
+    description: Product reviews and shop trust reviews (completed orders only)
 components:
   securitySchemes:
     bearerAuth:
