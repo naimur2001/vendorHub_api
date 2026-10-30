@@ -1,0 +1,1133 @@
+paths:
+  # ───────────── Uploads ─────────────
+  /api/v1/uploads:
+    post:
+      tags: [Uploads]
+      operationId: uploadFile
+      summary: Upload one file (max 5 MB); the real type is read from its content
+      description: PUBLIC_IMAGE accepts jpeg, png and webp and is served to anyone. PRIVATE_DOCUMENT accepts jpeg, png and pdf and is served only to the uploader and admins. Use the returned url in avatar, product image, logo, shop photo and verification document fields. At most 100 uploads per user per day.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: purpose
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [PUBLIC_IMAGE, PRIVATE_DOCUMENT]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: The stored file.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Upload'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          description: The file is larger than 5 MB.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/files/{fileId}:
+    get:
+      tags: [Uploads]
+      operationId: getPrivateFile
+      summary: Open a private document (the uploader or an admin; others get 404)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The file itself (not cached).
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ───────────── Returns and disputes ─────────────
+  /api/v1/orders/{orderId}/returns:
+    post:
+      tags: [Returns]
+      operationId: createReturn
+      summary: Ask for a return of my completed order (within the shop's window; one per order)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, description]
+              properties:
+                reason:
+                  type: string
+                  enum: [DEFECTIVE, WRONG_ITEM, NOT_AS_DESCRIBED, CHANGED_MIND, OTHER]
+                description:
+                  type: string
+                  minLength: 10
+                  maxLength: 1000
+      responses:
+        '201':
+          description: The return request (REQUESTED).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReturnResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/returns:
+    get:
+      tags: [Returns]
+      operationId: listMyReturns
+      summary: My return requests
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ReturnStatus'
+        - name: orderId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of my returns.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReturnList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/returns/{returnId}:
+    get:
+      tags: [Returns]
+      operationId: getReturn
+      summary: One return with the order, the thread and the allowed actions
+      description: For the customer, the shop team and admins; anyone else gets 404.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: returnId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The return.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReturnResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/returns/{returnId}/messages:
+    post:
+      tags: [Returns]
+      operationId: addReturnMessage
+      summary: Write in the return's thread (while it is open)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: returnId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body:
+                  type: string
+                  minLength: 2
+                  maxLength: 2000
+      responses:
+        '201':
+          description: The return with the new message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReturnResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/returns/{returnId}/escalate:
+    post:
+      tags: [Returns]
+      operationId: escalateReturn
+      summary: Take a REJECTED return to an admin (the customer only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: returnId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 10
+                  maxLength: 1000
+      responses:
+        '200':
+          description: ESCALATED; the shop team and all admins are notified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReturnResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/returns/{returnId}/respond:
+    post:
+      tags: [Returns]
+      operationId: respondToReturn
+      summary: The shop answers a REQUESTED return (approve = refund, reject = note)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: returnId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [APPROVE, REJECT]
+                note:
+                  type: string
+                  minLength: 5
+                  maxLength: 500
+                  description: Required when rejecting.
+                restock:
+                  type: boolean
+                  default: false
+                  description: Put the returned item back in stock.
+      responses:
+        '200':
+          description: REFUNDED or REJECTED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReturnResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/shops/{shopId}/returns:
+    get:
+      tags: [Returns]
+      operationId: listShopReturns
+      summary: The shop's return requests (shop team)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ReturnStatus'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of the shop's returns.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReturnList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/disputes:
+    get:
+      tags: [Returns]
+      operationId: adminListDisputes
+      summary: The dispute queue, longest waiting first (default - ESCALATED)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [REQUESTED, REJECTED, ESCALATED, REFUNDED, CLOSED, ALL]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of returns.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReturnList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/returns/{returnId}/resolve:
+    post:
+      tags: [Returns]
+      operationId: adminResolveReturn
+      summary: The admin's final decision on an ESCALATED return (approve = refund, reject = close)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: returnId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, note]
+              properties:
+                decision:
+                  type: string
+                  enum: [APPROVE, REJECT]
+                note:
+                  type: string
+                  minLength: 5
+                  maxLength: 500
+                restock:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          description: REFUNDED or CLOSED; the customer and the shop team are notified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReturnResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  # ───────────── Notifications ─────────────
+  /api/v1/notifications:
+    get:
+      tags: [Notifications]
+      operationId: listNotifications
+      summary: My notifications, newest first
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: unreadOnly
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of notifications.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+                  meta:
+                    type: object
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/notifications/unread-count:
+    get:
+      tags: [Notifications]
+      operationId: unreadNotificationCount
+      summary: The number for the bell icon (poll it every 30-60 seconds)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The unread count.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      unread:
+                        type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/notifications/read-all:
+    post:
+      tags: [Notifications]
+      operationId: markAllNotificationsRead
+      summary: Mark all my notifications read
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: How many were marked.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      marked:
+                        type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/notifications/{notificationId}/read:
+    post:
+      tags: [Notifications]
+      operationId: markNotificationRead
+      summary: Mark one notification read (someone else's gives 404)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The notification.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Notification'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ───────────── Shop photos ─────────────
+  /api/v1/shops/{shop}/photos:
+    get:
+      tags: [Shop photos]
+      operationId: listShopPhotos
+      summary: The shop's photo gallery, cover first (public)
+      description: Here {shop} is the shop SLUG.
+      parameters:
+        - name: shop
+          in: path
+          required: true
+          description: The shop slug.
+          schema:
+            type: string
+          example: techzone-electronics
+      responses:
+        '200':
+          description: The photos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ShopPhoto'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Shop photos]
+      operationId: addShopPhoto
+      summary: Add a photo from an upload (owner or admin; at most 12; the first is the cover)
+      description: Here {shop} is the shop ID. Upload first with POST /api/v1/uploads?purpose=PUBLIC_IMAGE and send the returned id. A new photo always starts unverified.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shop
+          in: path
+          required: true
+          description: The shop id.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [uploadId, kind]
+              properties:
+                uploadId:
+                  type: string
+                  format: uuid
+                kind:
+                  $ref: '#/components/schemas/ShopPhotoKind'
+                caption:
+                  type: string
+                  maxLength: 200
+                isCover:
+                  type: boolean
+      responses:
+        '201':
+          description: The new photo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShopPhotoResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/shops/{shopId}/photos/{photoId}:
+    patch:
+      tags: [Shop photos]
+      operationId: updateShopPhoto
+      summary: Change caption, kind or order, or make it the cover (owner or admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: photoId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                kind:
+                  $ref: '#/components/schemas/ShopPhotoKind'
+                caption:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+                sortOrder:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                isCover:
+                  type: boolean
+                  enum: [true]
+                  description: Only true; to change the cover, choose another photo as cover.
+      responses:
+        '200':
+          description: The updated photo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShopPhotoResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Shop photos]
+      operationId: deleteShopPhoto
+      summary: Remove a photo (if it was the cover, another takes over)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: photoId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/shops/{shopId}/photos/{photoId}/verify:
+    patch:
+      tags: [Shop photos]
+      operationId: adminVerifyShopPhoto
+      summary: Mark a photo verified (checked against the real shop) or not; audited
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: photoId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verified]
+              properties:
+                verified:
+                  type: boolean
+      responses:
+        '200':
+          description: The photo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShopPhotoResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ───────────── Virtual try-on ─────────────
+  /api/v1/products/{slug}/try-on:
+    get:
+      tags: [Try-on]
+      operationId: tryOnInfo
+      summary: Is try-on available for this product, and which views?
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Availability, the views in rolling order, where to start, the creation order and the notice.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/TryOnInfo'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/try-on:
+    post:
+      tags: [Try-on]
+      operationId: createTryOnPicture
+      summary: Create ONE AI picture of me wearing the product (nothing is stored)
+      description: Create FRONT first, then send that picture as reference for the other views so the person and the garment stay the same. Each picture takes about 10-30 seconds. 25 pictures per customer per day.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: productId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: view
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [LEFT, LEFT_45, FRONT, RIGHT_45, RIGHT]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [photo]
+              properties:
+                photo:
+                  type: string
+                  format: binary
+                  description: A clear, full-body photo of the customer (jpeg, png or webp).
+                reference:
+                  type: string
+                  format: binary
+                  description: The FRONT result, for the other views.
+      responses:
+        '200':
+          description: The picture as a data URL (shown directly, never cached).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      view:
+                        type: string
+                      product:
+                        type: string
+                      image:
+                        type: string
+                        example: data:image/png;base64,iVBORw0...
+                      note:
+                        type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          description: A photo is larger than 5 MB.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The AI could not dress this photo; try a clear, full-body photo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '502':
+          description: The AI service failed; try again.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Try-on is not configured (missing or wrong AI key or model).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/admin/categories/{categoryId}/try-on:
+    patch:
+      tags: [Try-on]
+      operationId: adminToggleCategoryTryOn
+      summary: Switch try-on on or off for a category (audited)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: categoryId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: The category with its try-on switch.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  schemas:
+    Upload:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        purpose:
+          type: string
+          enum: [PUBLIC_IMAGE, PRIVATE_DOCUMENT]
+        url:
+          type: string
+        mimeType:
+          type: string
+        size:
+          type: integer
+        originalName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    ReturnStatus:
+      type: string
+      enum: [REQUESTED, REJECTED, ESCALATED, REFUNDED, CLOSED]
+    ReturnRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ReturnStatus'
+        reason:
+          type: string
+          enum: [DEFECTIVE, WRONG_ITEM, NOT_AS_DESCRIBED, CHANGED_MIND, OTHER]
+        description:
+          type: string
+        resolutionNote:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        order:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            orderNumber:
+              type: string
+            total:
+              type: integer
+            paymentMethod:
+              type: string
+            paymentStatus:
+              type: string
+            completedAt:
+              type: string
+              format: date-time
+        shop:
+          $ref: '#/components/schemas/IdNameSlug'
+        customer:
+          type: object
+          properties:
+            name:
+              type: string
+        messages:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              authorRole:
+                type: string
+                enum: [CUSTOMER, SHOP, ADMIN]
+              author:
+                type: string
+              body:
+                type: string
+              createdAt:
+                type: string
+                format: date-time
+        actions:
+          type: object
+          description: Which buttons to show for the viewer.
+          properties:
+            respond:
+              type: boolean
+            escalate:
+              type: boolean
+            resolve:
+              type: boolean
+            message:
+              type: boolean
+    ReturnResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/ReturnRequest'
+    ReturnList:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReturnRequest'
+        meta:
+          type: object
+          properties:
+            pagination:
+              $ref: '#/components/schemas/Pagination'
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          description: For example ORDER_NEW, ORDER_STATUS, RETURN_ESCALATED, BARGAIN_OFFER, VERIFICATION_APPROVED.
+        title:
+          type: string
+        body:
+          type: string
+        data:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: Ids the UI can link to (orderId, returnId, bargainId, shopId).
+        read:
+          type: boolean
+        readAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    ShopPhotoKind:
+      type: string
+      enum: [EXTERIOR, SIGNBOARD, INTERIOR, DISPLAY, PANORAMA_360, OTHER]
+    ShopPhoto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/ShopPhotoKind'
+        caption:
+          type: string
+          nullable: true
+        url:
+          type: string
+        isCover:
+          type: boolean
+        sortOrder:
+          type: integer
+        verified:
+          type: boolean
+        verifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    ShopPhotoResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/ShopPhoto'
+    TryOnInfo:
+      type: object
+      properties:
+        available:
+          type: boolean
+        views:
+          type: array
+          description: Rolling order, left side to right side.
+          items:
+            type: string
+            enum: [LEFT, LEFT_45, FRONT, RIGHT_45, RIGHT]
+        startView:
+          type: string
+          example: FRONT
+        createOrder:
+          type: array
+          items:
+            type: string
+        dailyLimit:
+          type: integer
+        note:
+          type: string
+        mock:
+          type: boolean
+          description: True when pictures are not real AI (development and tests).

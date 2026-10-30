@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { env } from '../../config/env.js';
 import { deriveAvailability } from '../../lib/availability.js';
+import { notifyNewOrders } from '../notifications/notifications.events.js';
 
 const DELIVERY_FEE = 60; // taka, charged once per shop that delivers
 
@@ -51,7 +52,7 @@ const formatOrder = (o) => ({
   })),
 });
 
-export async function placeOrders(userId, { shops: choices }) {
+async function placeOrdersInTransaction(userId, { shops: choices }) {
   const choiceIds = choices.map((c) => c.shopId);
   if (new Set(choiceIds).size !== choiceIds.length) {
     throw new AppError(400, 'Each shop can appear only once');
@@ -79,7 +80,16 @@ export async function placeOrders(userId, { shops: choices }) {
           },
         },
       });
-      if (!cart || cart.items.length === 0) throw new AppError(400, 'Your cart is empty');
+      // if (!cart || cart.items.length === 0) throw new AppError(400, 'Your cart is empty');
+        if (!cart || cart.items.length === 0) throw new AppError(400, 'Your cart is empty');
+
+        // a saved address can be used instead of typing one
+        for (const c of choices) {
+          if (!c.addressId) continue;
+          const saved = await tx.address.findFirst({ where: { id: c.addressId, userId } });
+          if (!saved) throw new AppError(400, 'Delivery address not found');
+          c.deliveryAddress = `${saved.line1}${saved.area ? `, ${saved.area}` : ''}, ${saved.city}. Phone: ${saved.phone}`;
+        }
 
       // 1. Re-check every item and group by shop. Prices are re-read here, never taken from the client.
       const byShop = new Map();
@@ -298,4 +308,11 @@ export async function payMock(userId, orderId) {
     prisma.subOrder.update({ where: { id: orderId }, data: { paymentStatus: 'PAID' } }),
   ]);
   return getOrder(userId, orderId);
+}
+
+// The transaction above saves the orders; the shops and the customer are told only AFTER it has committed.
+export async function placeOrders(userId, input) {
+  const result = await placeOrdersInTransaction(userId, input);
+  await notifyNewOrders(userId, result.checkoutId); // never throws
+  return result;
 }

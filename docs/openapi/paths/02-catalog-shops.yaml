@@ -1,0 +1,943 @@
+paths:
+  /api/v1/categories:
+    get:
+      tags: [Catalog]
+      operationId: listCategories
+      summary: All categories with product counts
+      responses:
+        '200':
+          description: Categories, alphabetical.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Category'
+  /api/v1/brands:
+    get:
+      tags: [Catalog]
+      operationId: listBrands
+      summary: All brands with product counts
+      responses:
+        '200':
+          description: Brands, alphabetical.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Brand'
+  /api/v1/products:
+    get:
+      tags: [Catalog]
+      operationId: listProducts
+      summary: Search, filter, sort and page through products
+      description: A product appears when at least one active shop listing matches the filters; prices are computed from those listings.
+      parameters:
+        - name: q
+          in: query
+          description: Text in the title or the brand name.
+          schema:
+            type: string
+        - name: category
+          in: query
+          description: Category slug (includes its subcategories).
+          schema:
+            type: string
+        - name: brand
+          in: query
+          description: Brand name.
+          schema:
+            type: string
+        - name: minPrice
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+        - name: maxPrice
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+        - name: shopId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: marketId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: availableOnly
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [newest, price_asc, price_desc]
+            default: newest
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of product cards.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProductCard'
+                  meta:
+                    type: object
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/v1/products/{slug}:
+    get:
+      tags: [Catalog]
+      operationId: getProduct
+      summary: Product page with the selected shop listing and the other shops
+      description: Without listingId the cheapest listing that is not out of stock is selected.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+          example: galaxy-a55-5g-8-128gb
+        - name: listingId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The product page.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/ProductDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/products/{slug}/listings:
+    get:
+      tags: [Catalog]
+      operationId: compareListings
+      summary: Compare table, every shop's price for a product, cheapest first
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: All listings of the product.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Listing'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/markets:
+    get:
+      tags: [Markets]
+      operationId: listMarkets
+      summary: Malls and markets
+      responses:
+        '200':
+          description: All markets.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Market'
+  /api/v1/markets/{slug}:
+    get:
+      tags: [Markets]
+      operationId: getMarket
+      summary: One market and its active shops (shop cards with cover photo)
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+          example: jamuna-future-park
+      responses:
+        '200':
+          description: The market with its shops.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/MarketDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/shops:
+    post:
+      tags: [Shops]
+      operationId: createShop
+      summary: Create a shop (it starts unverified)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, addressLine]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                marketId:
+                  type: string
+                  format: uuid
+                levelFloor:
+                  type: string
+                  example: Level 3
+                shopNumber:
+                  type: string
+                  example: Shop 42
+                addressLine:
+                  type: string
+                latitude:
+                  type: number
+                longitude:
+                  type: number
+                supportsDelivery:
+                  type: boolean
+                supportsPickup:
+                  type: boolean
+                logoUrl:
+                  type: string
+                bannerUrl:
+                  type: string
+      responses:
+        '201':
+          description: The new shop.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Shop'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/shops/{shop}:
+    get:
+      tags: [Shops]
+      operationId: getStorefront
+      summary: Storefront header, trust signals, return policy, cover photo, and whether I follow it
+      description: Here {shop} is the shop SLUG. Login is optional; when logged in, isFollowing is filled in.
+      parameters:
+        - name: shop
+          in: path
+          required: true
+          description: The shop slug.
+          schema:
+            type: string
+          example: techzone-electronics
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The storefront.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Storefront'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Shops]
+      operationId: updateShop
+      summary: Edit the shop profile (owner or admin)
+      description: Here {shop} is the shop ID. Unknown fields are rejected; the verification level and the slug cannot be changed here.
+      parameters:
+        - name: shop
+          in: path
+          required: true
+          description: The shop id.
+          schema:
+            type: string
+            format: uuid
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+                description:
+                  type: string
+                  nullable: true
+                  maxLength: 1000
+                logoUrl:
+                  type: string
+                  nullable: true
+                bannerUrl:
+                  type: string
+                  nullable: true
+                marketId:
+                  type: string
+                  format: uuid
+                  nullable: true
+                levelFloor:
+                  type: string
+                  nullable: true
+                shopNumber:
+                  type: string
+                  nullable: true
+                addressLine:
+                  type: string
+                  minLength: 5
+                latitude:
+                  type: number
+                  nullable: true
+                longitude:
+                  type: number
+                  nullable: true
+                supportsDelivery:
+                  type: boolean
+                supportsPickup:
+                  type: boolean
+                returnPolicy:
+                  type: string
+                  nullable: true
+                  maxLength: 2000
+                returnWindowDays:
+                  type: integer
+                  minimum: 0
+                  maximum: 60
+                  description: 0 means the shop accepts no returns.
+      responses:
+        '200':
+          description: The updated shop.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Shop'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/shops/{slug}/products:
+    get:
+      tags: [Shops]
+      operationId: storefrontProducts
+      summary: The storefront product grid
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: bargainOnly
+          in: query
+          description: Only products this shop is willing to bargain on.
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of this shop's products, with this shop's price and availability.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  meta:
+                    type: object
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/shops/{slug}/categories:
+    get:
+      tags: [Shops]
+      operationId: storefrontCategories
+      summary: The categories this shop sells in
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Categories with the number of this shop's products in each.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/shops/{slug}/reviews:
+    get:
+      tags: [Shops]
+      operationId: storefrontReviews
+      summary: Reviews of the shop (shop trust and product reviews)
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [SHOP_TRUST, PRODUCT]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of reviews.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  meta:
+                    type: object
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/shops/{slug}/follow:
+    post:
+      tags: [Shops]
+      operationId: followShop
+      summary: Follow a shop
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Following.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Shops]
+      operationId: unfollowShop
+      summary: Unfollow a shop
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Not following any more.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  schemas:
+    Category:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        productCount:
+          type: integer
+    Brand:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        productCount:
+          type: integer
+    IdName:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    IdNameSlug:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+    ProductCard:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        title:
+          type: string
+        brand:
+          allOf:
+            - $ref: '#/components/schemas/IdName'
+          nullable: true
+        category:
+          $ref: '#/components/schemas/IdNameSlug'
+        image:
+          type: string
+          nullable: true
+        msrp:
+          type: integer
+          nullable: true
+        lowestPrice:
+          type: integer
+        highestPrice:
+          type: integer
+        shopCount:
+          type: integer
+        availability:
+          $ref: '#/components/schemas/Availability'
+        bargainAvailable:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    ListingShop:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        logoUrl:
+          type: string
+          nullable: true
+        levelFloor:
+          type: string
+          nullable: true
+        shopNumber:
+          type: string
+          nullable: true
+        addressLine:
+          type: string
+        verificationLevel:
+          $ref: '#/components/schemas/VerificationLevel'
+        lastAuditedAt:
+          type: string
+          format: date-time
+          nullable: true
+        supportsDelivery:
+          type: boolean
+        supportsPickup:
+          type: boolean
+        avgResponseMins:
+          type: integer
+          nullable: true
+        market:
+          allOf:
+            - $ref: '#/components/schemas/IdNameSlug'
+          nullable: true
+        rating:
+          type: object
+          properties:
+            average:
+              type: number
+              nullable: true
+            count:
+              type: integer
+    Listing:
+      type: object
+      description: One shop's offer for a product. Stock numbers are never shown publicly, only the availability.
+      properties:
+        id:
+          type: string
+          format: uuid
+        price:
+          type: integer
+        availability:
+          $ref: '#/components/schemas/Availability'
+        bargainEnabled:
+          type: boolean
+        discountPercent:
+          type: integer
+          nullable: true
+        shop:
+          $ref: '#/components/schemas/ListingShop'
+    ProductDetail:
+      type: object
+      properties:
+        product:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            slug:
+              type: string
+            title:
+              type: string
+            description:
+              type: string
+              nullable: true
+            specs:
+              type: object
+              nullable: true
+              additionalProperties: true
+            images:
+              type: array
+              items:
+                type: string
+            msrp:
+              type: integer
+              nullable: true
+            brand:
+              allOf:
+                - $ref: '#/components/schemas/IdName'
+              nullable: true
+            category:
+              $ref: '#/components/schemas/IdNameSlug'
+        selectedListing:
+          allOf:
+            - $ref: '#/components/schemas/Listing'
+          nullable: true
+        otherListings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Listing'
+        otherShopsCount:
+          type: integer
+    Market:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        city:
+          type: string
+        address:
+          type: string
+          nullable: true
+        latitude:
+          type: number
+          nullable: true
+        longitude:
+          type: number
+          nullable: true
+    CoverPhoto:
+      type: object
+      nullable: true
+      properties:
+        url:
+          type: string
+        kind:
+          type: string
+          enum: [EXTERIOR, SIGNBOARD, INTERIOR, DISPLAY, PANORAMA_360, OTHER]
+        verified:
+          type: boolean
+          description: True when an admin checked the photo against the real shop.
+    ShopCard:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        logoUrl:
+          type: string
+          nullable: true
+        levelFloor:
+          type: string
+          nullable: true
+        shopNumber:
+          type: string
+          nullable: true
+        addressLine:
+          type: string
+        verificationLevel:
+          $ref: '#/components/schemas/VerificationLevel'
+        coverPhoto:
+          $ref: '#/components/schemas/CoverPhoto'
+    MarketDetail:
+      allOf:
+        - $ref: '#/components/schemas/Market'
+        - type: object
+          properties:
+            shops:
+              type: array
+              items:
+                $ref: '#/components/schemas/ShopCard'
+    Storefront:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+          nullable: true
+        logoUrl:
+          type: string
+          nullable: true
+        bannerUrl:
+          type: string
+          nullable: true
+        coverPhoto:
+          $ref: '#/components/schemas/CoverPhoto'
+        photoCount:
+          type: integer
+        address:
+          type: object
+          properties:
+            levelFloor:
+              type: string
+              nullable: true
+            shopNumber:
+              type: string
+              nullable: true
+            addressLine:
+              type: string
+            latitude:
+              type: number
+              nullable: true
+            longitude:
+              type: number
+              nullable: true
+        market:
+          allOf:
+            - $ref: '#/components/schemas/IdNameSlug'
+          nullable: true
+        verification:
+          type: object
+          properties:
+            level:
+              $ref: '#/components/schemas/VerificationLevel'
+            lastAuditedAt:
+              type: string
+              format: date-time
+              nullable: true
+        supportsDelivery:
+          type: boolean
+        supportsPickup:
+          type: boolean
+        returnPolicy:
+          type: object
+          properties:
+            text:
+              type: string
+              nullable: true
+            windowDays:
+              type: integer
+              description: 0 means no returns.
+        stats:
+          type: object
+          properties:
+            ratingAverage:
+              type: number
+              nullable: true
+            reviewCount:
+              type: integer
+            ordersFulfilled:
+              type: integer
+            avgResponseMins:
+              type: integer
+              nullable: true
+            followers:
+              type: integer
+            activeBargains:
+              type: integer
+        staffCount:
+          type: integer
+        isFollowing:
+          type: boolean
+    Shop:
+      type: object
+      description: The shop record as stored (returned after creating or editing).
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+          format: uuid
+        ownerId:
+          type: string
+          format: uuid
+        marketId:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+        slug:
+          type: string
+        verificationLevel:
+          $ref: '#/components/schemas/VerificationLevel'
+        isActive:
+          type: boolean
+        returnPolicy:
+          type: string
+          nullable: true
+        returnWindowDays:
+          type: integer

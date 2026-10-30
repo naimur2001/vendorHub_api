@@ -1,0 +1,1797 @@
+paths:
+  # ───────────── Listings (shop team) ─────────────
+  /api/v1/shops/{shopId}/listings:
+    get:
+      tags: [Listings]
+      operationId: listShopListings
+      summary: The shop's listings, including stock numbers (shop team only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: All listings of the shop, active and inactive.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ShopListing'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Listings]
+      operationId: createListing
+      summary: Sell a catalog product in this shop
+      description: If availability is left out it is derived from stockQty (0 = OUT_OF_STOCK, 1-5 = LIMITED, 6 or more = IN_STOCK). minOfferPercent is the lowest offer (as a percent of the price) that is accepted automatically.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productId, price]
+              properties:
+                productId:
+                  type: string
+                  format: uuid
+                price:
+                  type: integer
+                  minimum: 1
+                availability:
+                  $ref: '#/components/schemas/Availability'
+                stockQty:
+                  type: integer
+                  minimum: 0
+                  nullable: true
+                bargainEnabled:
+                  type: boolean
+                  default: false
+                minOfferPercent:
+                  type: integer
+                  minimum: 50
+                  maximum: 100
+                  default: 92
+      responses:
+        '201':
+          description: The new listing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShopListingResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/shops/{shopId}/listings/{listingId}:
+    patch:
+      tags: [Listings]
+      operationId: updateListing
+      summary: Change price, stock, availability or bargaining
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: listingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                price:
+                  type: integer
+                  minimum: 1
+                availability:
+                  $ref: '#/components/schemas/Availability'
+                stockQty:
+                  type: integer
+                  minimum: 0
+                  nullable: true
+                bargainEnabled:
+                  type: boolean
+                minOfferPercent:
+                  type: integer
+                  minimum: 50
+                  maximum: 100
+                isActive:
+                  type: boolean
+      responses:
+        '200':
+          description: The updated listing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShopListingResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Listings]
+      operationId: deactivateListing
+      summary: Stop selling (soft delete; orders keep their history)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: listingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The listing is inactive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ───────────── Cart ─────────────
+  /api/v1/cart:
+    get:
+      tags: [Cart]
+      operationId: getCart
+      summary: My cart, grouped by shop, with live prices and problems flagged
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The cart (empty groups when nothing is in it).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags: [Cart]
+      operationId: clearCart
+      summary: Empty my cart
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The empty cart.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/cart/items:
+    post:
+      tags: [Cart]
+      operationId: addCartItem
+      summary: Add a shop listing to my cart (adds to the quantity if already there)
+      description: Maximum 10 per item. An item with an applied bargain price is limited to 1 unit.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [listingId]
+              properties:
+                listingId:
+                  type: string
+                  format: uuid
+                quantity:
+                  type: integer
+                  minimum: 1
+                  maximum: 10
+                  default: 1
+      responses:
+        '200':
+          description: The updated cart.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/cart/items/{itemId}:
+    patch:
+      tags: [Cart]
+      operationId: updateCartItem
+      summary: Change the quantity of a cart item
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties:
+                quantity:
+                  type: integer
+                  minimum: 1
+                  maximum: 10
+      responses:
+        '200':
+          description: The updated cart.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [Cart]
+      operationId: removeCartItem
+      summary: Remove an item from my cart
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The updated cart.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ───────────── Checkout and my orders ─────────────
+  /api/v1/checkout:
+    post:
+      tags: [Orders]
+      operationId: checkout
+      summary: Place the whole cart - one independent order per shop, in one transaction
+      description: Every shop in the cart needs one choice. Delivery needs deliveryAddress (typed) or addressId (a saved address). Prices and stock are checked again; stock is reserved; used bargains are closed; the cart is emptied. Each shop's team is notified about its own order.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [shops]
+              properties:
+                shops:
+                  type: array
+                  minItems: 1
+                  maxItems: 20
+                  items:
+                    type: object
+                    required: [shopId, deliveryMethod, paymentMethod]
+                    properties:
+                      shopId:
+                        type: string
+                        format: uuid
+                      deliveryMethod:
+                        type: string
+                        enum: [STORE_PICKUP, VENDOR_DELIVERY]
+                      paymentMethod:
+                        type: string
+                        enum: [ONLINE, PAY_AT_STORE, CASH_ON_DELIVERY]
+                      deliveryAddress:
+                        type: string
+                        minLength: 10
+                        maxLength: 300
+                      addressId:
+                        type: string
+                        format: uuid
+                        description: One of my saved addresses, instead of typing deliveryAddress.
+      responses:
+        '201':
+          description: The checkout with its orders (one per shop).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/CheckoutResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/checkouts/{checkoutId}:
+    get:
+      tags: [Orders]
+      operationId: getCheckout
+      summary: One checkout (the customer's receipt) with all its orders
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: checkoutId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The checkout.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/CheckoutResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/orders:
+    get:
+      tags: [Orders]
+      operationId: listMyOrders
+      summary: My orders, newest first
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - $ref: '#/components/parameters/Page'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: One page of my orders.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+                  meta:
+                    type: object
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/orders/{orderId}:
+    get:
+      tags: [Orders]
+      operationId: getMyOrder
+      summary: One of my orders, with the shop's address and the items
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/orders/{orderId}/pay-mock:
+    post:
+      tags: [Orders]
+      operationId: payMock
+      summary: Pretend to pay an ONLINE order (stand-in until a real payment gateway)
+      description: Works only while MOCK_PAYMENTS is on.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The order is PAID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/orders/{orderId}/cancel:
+    post:
+      tags: [Orders]
+      operationId: cancelMyOrder
+      summary: Cancel my order (only while PLACED); stock comes back and a paid online order is refunded
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  minLength: 3
+                  maxLength: 300
+      responses:
+        '200':
+          description: The cancelled order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  # ───────────── Fulfilment (shop team) ─────────────
+  /api/v1/shops/{shopId}/orders:
+    get:
+      tags: [Fulfilment]
+      operationId: listShopOrders
+      summary: The shop's incoming orders (only this shop's sub-orders)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - name: paymentStatus
+          in: query
+          schema:
+            $ref: '#/components/schemas/PaymentStatus'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of the shop's orders.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+                  meta:
+                    type: object
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/shops/{shopId}/orders/{orderId}:
+    get:
+      tags: [Fulfilment]
+      operationId: getShopOrder
+      summary: One of the shop's orders, with the allowed next statuses
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The order (another shop's order is 404).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/shops/{shopId}/orders/{orderId}/status:
+    post:
+      tags: [Fulfilment]
+      operationId: changeOrderStatus
+      summary: Move an order forward, or cancel it with a reason
+      description: CONFIRMED needs an ONLINE order to be PAID first. A cash order becomes PAID when COMPLETED. Cancelling puts the stock back and refunds a paid online order. The customer is notified.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [CONFIRMED, READY_FOR_PICKUP, OUT_FOR_DELIVERY, COMPLETED, CANCELLED]
+                reason:
+                  type: string
+                  minLength: 3
+                  maxLength: 300
+                  description: Required when cancelling.
+      responses:
+        '200':
+          description: The order with its new status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  # ───────────── Bargains ─────────────
+  /api/v1/listings/{listingId}/bargain-info:
+    get:
+      tags: [Bargains]
+      operationId: getBargainInfo
+      summary: Can I bargain on this listing, and in which price range?
+      parameters:
+        - name: listingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Bargain information (the shop's minimum stays private).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/bargains:
+    post:
+      tags: [Bargains]
+      operationId: createBargain
+      summary: Make an offer (accepted automatically when it meets the shop's minimum)
+      description: One live negotiation per customer and listing. The shop is notified.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [listingId, offer]
+              properties:
+                listingId:
+                  type: string
+                  format: uuid
+                offer:
+                  type: integer
+                  minimum: 1
+      responses:
+        '201':
+          description: The negotiation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BargainResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    get:
+      tags: [Bargains]
+      operationId: listMyBargains
+      summary: My negotiations
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/BargainStatus'
+        - $ref: '#/components/parameters/Page'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: One page of my negotiations.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Bargain'
+                  meta:
+                    type: object
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/bargains/{bargainId}:
+    get:
+      tags: [Bargains]
+      operationId: getBargain
+      summary: One negotiation with its offer feed, time left and whose turn it is
+      description: An expired negotiation is closed the moment it is read.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: bargainId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The negotiation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BargainResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/bargains/{bargainId}/accept:
+    post:
+      tags: [Bargains]
+      operationId: acceptBargain
+      summary: Accept the other side's last offer (only on your turn)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: bargainId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: ACCEPTED, with the agreed price.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BargainResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/bargains/{bargainId}/counter:
+    post:
+      tags: [Bargains]
+      operationId: counterBargain
+      summary: Send a counter-offer (only on your turn; at most 6 offers)
+      description: The shop counters above the customer's offer and below the list price; the customer counters above their own last offer and below the shop's counter. A customer counter that meets the shop's minimum is accepted automatically.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: bargainId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount]
+              properties:
+                amount:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: The negotiation after the counter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BargainResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/bargains/{bargainId}/decline:
+    post:
+      tags: [Bargains]
+      operationId: declineBargain
+      summary: Decline (shop, on its turn) or withdraw (customer, any time)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: bargainId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: DECLINED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BargainResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/bargains/{bargainId}/add-to-cart:
+    post:
+      tags: [Bargains]
+      operationId: bargainAddToCart
+      summary: Put an ACCEPTED deal in my cart (1 unit, at the agreed price or the current price if lower)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: bargainId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The updated cart.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/shops/{shopId}/bargains:
+    get:
+      tags: [Bargains]
+      operationId: shopBargainInbox
+      summary: The shop's bargain inbox (default - waiting for the shop)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [AWAITING_SHOP, COUNTERED, ACCEPTED, DECLINED, EXPIRED, ALL]
+            default: AWAITING_SHOP
+        - $ref: '#/components/parameters/Page'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: One page of the shop's negotiations.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Bargain'
+                  meta:
+                    type: object
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ───────────── Verification ─────────────
+  /api/v1/shops/{shopId}/verifications:
+    post:
+      tags: [Verification]
+      operationId: submitVerification
+      summary: Ask for the next verification level (owner)
+      description: Only the next level, only one open request at a time, and the documents that level requires. All admins are notified.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetLevel, documents]
+              properties:
+                targetLevel:
+                  type: string
+                  enum: [DOCUMENTS_VERIFIED, BUSINESS_VERIFIED, PHYSICAL_SHOP_VERIFIED, TRUSTED_VENDOR]
+                documents:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items:
+                    $ref: '#/components/schemas/DocumentInput'
+      responses:
+        '201':
+          description: The request (the pre-check score stays private).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    get:
+      tags: [Verification]
+      operationId: listShopVerifications
+      summary: The shop's verification requests (owner)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The requests, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/verifications/{verificationId}/resubmit:
+    post:
+      tags: [Verification]
+      operationId: resubmitVerification
+      summary: Send corrected documents after a correction request (owner)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: verificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documents]
+              properties:
+                documents:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items:
+                    $ref: '#/components/schemas/DocumentInput'
+      responses:
+        '200':
+          description: The request is back in the queue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/verifications:
+    get:
+      tags: [Verification]
+      operationId: adminListVerifications
+      summary: The admin verification queue, oldest first
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          description: OPEN means PENDING plus AUTO_FLAGGED (waiting for an admin).
+          schema:
+            type: string
+            enum: [OPEN, ALL, PENDING, AUTO_FLAGGED, CORRECTION_REQUESTED, APPROVED, REJECTED, REVOKED]
+            default: OPEN
+        - name: q
+          in: query
+          description: Shop name.
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of requests with their actions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/verifications/{verificationId}:
+    get:
+      tags: [Verification]
+      operationId: adminGetVerification
+      summary: One request with documents, pre-check breakdown, stepper and history
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: verificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The request in detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/verifications/{verificationId}/notes:
+    patch:
+      tags: [Verification]
+      operationId: adminVerificationNotes
+      summary: Save internal admin notes (never shown to the shop)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: verificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [notes]
+              properties:
+                notes:
+                  type: string
+                  maxLength: 2000
+      responses:
+        '200':
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/verifications/{verificationId}/documents/{documentId}:
+    patch:
+      tags: [Verification]
+      operationId: adminReviewDocument
+      summary: Mark a document as reviewed (all must be reviewed before approval)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: verificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reviewed]
+              properties:
+                reviewed:
+                  type: boolean
+      responses:
+        '200':
+          description: The request with the updated document.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/verifications/{verificationId}/approve:
+    post:
+      tags: [Verification]
+      operationId: adminApproveVerification
+      summary: Approve - the shop gets the new level (all documents reviewed, none flagged)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: verificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: APPROVED; audited; the owner is notified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/verifications/{verificationId}/request-correction:
+    post:
+      tags: [Verification]
+      operationId: adminRequestCorrection
+      summary: Send the request back with a note and the documents to re-upload
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: verificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [note, documentIds]
+              properties:
+                note:
+                  type: string
+                  minLength: 5
+                  maxLength: 1000
+                documentIds:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: CORRECTION_REQUESTED; the owner is notified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/verifications/{verificationId}/reject:
+    post:
+      tags: [Verification]
+      operationId: adminRejectVerification
+      summary: Reject a request with a reason
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: verificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 5
+                  maxLength: 1000
+      responses:
+        '200':
+          description: REJECTED; the owner is notified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/shops/{shopId}/revoke:
+    post:
+      tags: [Verification]
+      operationId: adminRevokeShop
+      summary: Take a verified shop back to UNVERIFIED, with a reason
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 5
+                  maxLength: 1000
+      responses:
+        '200':
+          description: Revoked; audited; the owner is notified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/audit-logs:
+    get:
+      tags: [Verification]
+      operationId: listAuditLogs
+      summary: The audit log (every admin decision and important change)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: entityType
+          in: query
+          description: For example Shop, ShopVerification, ReturnRequest, Category, User, Product.
+          schema:
+            type: string
+        - name: entityId
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of entries, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ───────────── Reviews ─────────────
+  /api/v1/reviews:
+    post:
+      tags: [Reviews]
+      operationId: createReview
+      summary: Review a product or rate a shop (needs a COMPLETED order)
+      description: One review per customer per shop (SHOP_TRUST) and per product (PRODUCT). productId is required for PRODUCT and not allowed for SHOP_TRUST.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderId, type, rating]
+              properties:
+                orderId:
+                  type: string
+                  format: uuid
+                type:
+                  type: string
+                  enum: [PRODUCT, SHOP_TRUST]
+                productId:
+                  type: string
+                  format: uuid
+                rating:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                comment:
+                  type: string
+                  maxLength: 1000
+      responses:
+        '201':
+          description: The review.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/reviews/{reviewId}:
+    patch:
+      tags: [Reviews]
+      operationId: updateReview
+      summary: Edit my review
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: reviewId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                rating:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                comment:
+                  type: string
+                  nullable: true
+                  maxLength: 1000
+      responses:
+        '200':
+          description: The updated review.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Reviews]
+      operationId: deleteReview
+      summary: Delete a review (the author or an admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: reviewId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/products/{slug}/reviews:
+    get:
+      tags: [Reviews]
+      operationId: listProductReviews
+      summary: A product's reviews with a summary (average, count, star distribution)
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Page'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: One page of reviews plus the summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  schemas:
+    DataObject:
+      type: object
+      description: The usual answer; the shape of data is shown by Try it out.
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          additionalProperties: true
+    DataList:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        meta:
+          type: object
+          properties:
+            pagination:
+              $ref: '#/components/schemas/Pagination'
+    OrderStatus:
+      type: string
+      enum: [PLACED, CONFIRMED, READY_FOR_PICKUP, OUT_FOR_DELIVERY, COMPLETED, CANCELLED]
+    PaymentStatus:
+      type: string
+      enum: [PENDING, PAID, FAILED, REFUNDED]
+    BargainStatus:
+      type: string
+      enum: [AWAITING_SHOP, COUNTERED, ACCEPTED, DECLINED, EXPIRED]
+    DocumentInput:
+      type: object
+      required: [type, fileUrl]
+      properties:
+        type:
+          type: string
+          enum: [TRADE_LICENSE, NID, SHOP_PHOTO, OTHER]
+        fileUrl:
+          type: string
+          format: uri
+          maxLength: 500
+          description: Best a PRIVATE_DOCUMENT upload link (POST /api/v1/uploads).
+    ShopListing:
+      type: object
+      description: The shop's own view of a listing (includes stockQty and minOfferPercent, never shown publicly).
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+          format: uuid
+        price:
+          type: integer
+        availability:
+          $ref: '#/components/schemas/Availability'
+        stockQty:
+          type: integer
+          nullable: true
+        bargainEnabled:
+          type: boolean
+        minOfferPercent:
+          type: integer
+        isActive:
+          type: boolean
+        product:
+          type: object
+          additionalProperties: true
+    ShopListingResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/ShopListing'
+    Cart:
+      type: object
+      description: The cart grouped by shop, with live prices, problems flagged per item, and whether checkout is possible.
+      additionalProperties: true
+      properties:
+        shops:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        totals:
+          type: object
+          additionalProperties: true
+          properties:
+            shopCount:
+              type: integer
+        checkoutReady:
+          type: boolean
+    CartResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/Cart'
+    Order:
+      type: object
+      description: One shop's part of a checkout (a sub-order).
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderNumber:
+          type: string
+        checkoutId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        paymentMethod:
+          type: string
+          enum: [ONLINE, PAY_AT_STORE, CASH_ON_DELIVERY]
+        paymentStatus:
+          $ref: '#/components/schemas/PaymentStatus'
+        deliveryMethod:
+          type: string
+          enum: [STORE_PICKUP, VENDOR_DELIVERY]
+        deliveryAddress:
+          type: string
+          nullable: true
+        deliveryFee:
+          type: integer
+        total:
+          type: integer
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        nextStatuses:
+          type: array
+          description: Shop view only - the statuses this order may move to.
+          items:
+            $ref: '#/components/schemas/OrderStatus'
+    OrderResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/Order'
+    CheckoutResult:
+      type: object
+      additionalProperties: true
+      properties:
+        checkoutId:
+          type: string
+          format: uuid
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+    Bargain:
+      type: object
+      description: A negotiation. secondsLeft and yourTurn drive the countdown and the buttons.
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/BargainStatus'
+        listPrice:
+          type: integer
+        currentOffer:
+          type: integer
+        agreedPrice:
+          type: integer
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+        secondsLeft:
+          type: integer
+        yourTurn:
+          type: boolean
+    BargainResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/Bargain'

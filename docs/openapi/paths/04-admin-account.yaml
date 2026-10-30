@@ -1,0 +1,1264 @@
+paths:
+  # ───────────── Dashboards ─────────────
+  /api/v1/dashboard/customer:
+    get:
+      tags: [Dashboards]
+      operationId: customerDashboard
+      summary: My orders, spending, cart, bargains, follows and things to review
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The customer dashboard.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/dashboard/shop/{shopId}:
+    get:
+      tags: [Dashboards]
+      operationId: shopDashboard
+      summary: Shop orders, sales (24 h, 7 d, 30 d), to-do list, stock, verification and reputation
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The shop dashboard (shop team or admin).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/dashboard/admin:
+    get:
+      tags: [Dashboards]
+      operationId: adminDashboard
+      summary: Users, shops, orders and sales, queues, catalog counts, top shops and recent activity
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The admin dashboard.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ───────────── Admin: vendors and reports ─────────────
+  /api/v1/admin/shops:
+    get:
+      tags: [Admin]
+      operationId: adminListShops
+      summary: The vendors list with statistics
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Shop name.
+          schema:
+            type: string
+        - name: verificationLevel
+          in: query
+          schema:
+            $ref: '#/components/schemas/VerificationLevel'
+        - name: isActive
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - name: marketId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of shops with owner, market, listings, followers, orders, revenue and rating.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/shops/{shopId}/status:
+    patch:
+      tags: [Admin]
+      operationId: adminSetShopStatus
+      summary: Deactivate or reactivate a shop (with a reason; audited)
+      description: A deactivated shop disappears from the public site; its existing orders are untouched.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isActive, reason]
+              properties:
+                isActive:
+                  type: boolean
+                reason:
+                  type: string
+                  minLength: 5
+                  maxLength: 500
+      responses:
+        '200':
+          description: The new state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/reports/sales:
+    get:
+      tags: [Admin]
+      operationId: adminSalesReport
+      summary: Orders and revenue per day, week or month (Dhaka time)
+      description: Cancelled orders are left out. Default range is the last 30 days; the end date is exclusive; at most 366 days.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: interval
+          in: query
+          schema:
+            type: string
+            enum: [day, week, month]
+            default: day
+      responses:
+        '200':
+          description: Rows per period plus totals and the average order value.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/reports/top:
+    get:
+      tags: [Admin]
+      operationId: adminTopReport
+      summary: Top shops by revenue and top products by units sold
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 5
+      responses:
+        '200':
+          description: The top lists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ───────────── Admin: catalog ─────────────
+  /api/v1/admin/categories:
+    post:
+      tags: [Admin]
+      operationId: adminCreateCategory
+      summary: Create a category or a subcategory (two levels at most)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 80
+                parentId:
+                  type: string
+                  format: uuid
+                  nullable: true
+      responses:
+        '201':
+          description: The new category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/categories/{categoryId}:
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateCategory
+      summary: Rename or move a category (the slug never changes)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: categoryId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 80
+                parentId:
+                  type: string
+                  format: uuid
+                  nullable: true
+      responses:
+        '200':
+          description: The updated category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [Admin]
+      operationId: adminDeleteCategory
+      summary: Delete an empty category (409 while it has products or subcategories)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: categoryId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/brands:
+    post:
+      tags: [Admin]
+      operationId: adminCreateBrand
+      summary: Create a brand (unique name, any letter case)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrandInput'
+      responses:
+        '201':
+          description: The new brand.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/brands/{brandId}:
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateBrand
+      summary: Rename a brand
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: brandId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrandInput'
+      responses:
+        '200':
+          description: The updated brand.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [Admin]
+      operationId: adminDeleteBrand
+      summary: Delete a brand with no products
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: brandId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/markets:
+    post:
+      tags: [Admin]
+      operationId: adminCreateMarket
+      summary: Create a mall or market
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+                city:
+                  type: string
+                  minLength: 2
+                  maxLength: 60
+                  default: Dhaka
+                address:
+                  type: string
+                  maxLength: 200
+                latitude:
+                  type: number
+                  minimum: -90
+                  maximum: 90
+                longitude:
+                  type: number
+                  minimum: -180
+                  maximum: 180
+      responses:
+        '201':
+          description: The new market.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/markets/{marketId}:
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateMarket
+      summary: Edit a market (the slug never changes)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: marketId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+                city:
+                  type: string
+                  minLength: 2
+                  maxLength: 60
+                address:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+                latitude:
+                  type: number
+                  nullable: true
+                longitude:
+                  type: number
+                  nullable: true
+      responses:
+        '200':
+          description: The updated market.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Admin]
+      operationId: adminDeleteMarket
+      summary: Delete a market with no shops
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: marketId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/products:
+    get:
+      tags: [Admin]
+      operationId: adminListProducts
+      summary: All products, including inactive ones, with their active listing count
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: categoryId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: brandId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: isActive
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of products.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin]
+      operationId: adminCreateProduct
+      summary: Create a canonical product that shops can then list
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, categoryId]
+              properties:
+                title:
+                  type: string
+                  minLength: 3
+                  maxLength: 200
+                categoryId:
+                  type: string
+                  format: uuid
+                brandId:
+                  type: string
+                  format: uuid
+                  nullable: true
+                description:
+                  type: string
+                  nullable: true
+                  maxLength: 5000
+                specs:
+                  type: object
+                  additionalProperties: true
+                  example:
+                    ram: 8GB
+                    storage: 128GB
+                msrp:
+                  type: integer
+                  minimum: 0
+                  nullable: true
+                images:
+                  type: array
+                  maxItems: 10
+                  default: []
+                  items:
+                    type: string
+                    format: uri
+      responses:
+        '201':
+          description: The new product.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/products/{productId}:
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateProduct
+      summary: Edit a product, or re-activate it (the slug never changes)
+      description: Setting isActive to false also deactivates every shop listing of the product.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                title:
+                  type: string
+                  minLength: 3
+                  maxLength: 200
+                categoryId:
+                  type: string
+                  format: uuid
+                brandId:
+                  type: string
+                  format: uuid
+                  nullable: true
+                description:
+                  type: string
+                  nullable: true
+                  maxLength: 5000
+                specs:
+                  type: object
+                  additionalProperties: true
+                msrp:
+                  type: integer
+                  minimum: 0
+                  nullable: true
+                images:
+                  type: array
+                  maxItems: 10
+                  items:
+                    type: string
+                    format: uri
+                isActive:
+                  type: boolean
+      responses:
+        '200':
+          description: The updated product.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Admin]
+      operationId: adminDeactivateProduct
+      summary: Deactivate a product and all its listings (never deleted, orders point at it)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deactivated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ───────────── Profile and addresses ─────────────
+  /api/v1/users/me:
+    patch:
+      tags: [Profile]
+      operationId: updateMyProfile
+      summary: Edit my name, phone or avatar
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 80
+                phone:
+                  type: string
+                  nullable: true
+                  pattern: '^01\d{9}$'
+                  example: '01712345678'
+                avatarUrl:
+                  type: string
+                  format: uri
+                  nullable: true
+      responses:
+        '200':
+          description: My updated profile.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/users/me/addresses:
+    get:
+      tags: [Profile]
+      operationId: listMyAddresses
+      summary: My saved addresses, default first
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The addresses.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Address'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Profile]
+      operationId: createMyAddress
+      summary: Save an address (at most 10; the first one becomes the default)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [line1, phone]
+              properties:
+                label:
+                  type: string
+                  maxLength: 40
+                  example: Home
+                line1:
+                  type: string
+                  minLength: 5
+                  maxLength: 200
+                area:
+                  type: string
+                  maxLength: 100
+                city:
+                  type: string
+                  minLength: 2
+                  maxLength: 60
+                  default: Dhaka
+                phone:
+                  type: string
+                  pattern: '^01\d{9}$'
+                isDefault:
+                  type: boolean
+                  default: false
+      responses:
+        '201':
+          description: The saved address.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Address'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/users/me/addresses/{addressId}:
+    patch:
+      tags: [Profile]
+      operationId: updateMyAddress
+      summary: Edit an address or make it the default (the default cannot be unset directly)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: addressId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                label:
+                  type: string
+                  nullable: true
+                  maxLength: 40
+                line1:
+                  type: string
+                  minLength: 5
+                  maxLength: 200
+                area:
+                  type: string
+                  nullable: true
+                  maxLength: 100
+                city:
+                  type: string
+                  minLength: 2
+                  maxLength: 60
+                phone:
+                  type: string
+                  pattern: '^01\d{9}$'
+                isDefault:
+                  type: boolean
+      responses:
+        '200':
+          description: The updated address.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Address'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Profile]
+      operationId: deleteMyAddress
+      summary: Delete an address (if it was the default, another one takes over)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: addressId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ───────────── Shop staff ─────────────
+  /api/v1/shops/{shopId}/staff:
+    get:
+      tags: [Staff]
+      operationId: listShopStaff
+      summary: The shop's owner and staff (shop team)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The team.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Staff]
+      operationId: addShopStaff
+      summary: Add a staff member by email (owner or admin)
+      description: A customer is upgraded to SHOP_STAFF and must log in again (mustLogInAgain). The owner or an admin cannot be added.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                title:
+                  type: string
+                  maxLength: 60
+                  example: Cashier
+      responses:
+        '201':
+          description: The new staff member.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/shops/{shopId}/staff/{userId}:
+    delete:
+      tags: [Staff]
+      operationId: removeShopStaff
+      summary: Remove a staff member (owner or admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ───────────── Admin: users ─────────────
+  /api/v1/admin/users:
+    get:
+      tags: [Admin]
+      operationId: adminListUsers
+      summary: Users with role, active flag and counts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Name, email or phone.
+          schema:
+            type: string
+        - name: role
+          in: query
+          schema:
+            $ref: '#/components/schemas/Role'
+        - name: isActive
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of users.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/users/{userId}:
+    get:
+      tags: [Admin]
+      operationId: adminGetUser
+      summary: One user with owned shops, staff memberships and activity counts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/users/{userId}/status:
+    patch:
+      tags: [Admin]
+      operationId: adminSetUserStatus
+      summary: Block or unblock a user (ends their sessions; not yourself)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isActive, reason]
+              properties:
+                isActive:
+                  type: boolean
+                reason:
+                  type: string
+                  minLength: 5
+                  maxLength: 500
+      responses:
+        '200':
+          description: The new state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/users/{userId}/role:
+    patch:
+      tags: [Admin]
+      operationId: adminSetUserRole
+      summary: Change a user's role (ends their sessions; an owner of shops cannot be demoted)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role, reason]
+              properties:
+                role:
+                  $ref: '#/components/schemas/Role'
+                reason:
+                  type: string
+                  minLength: 5
+                  maxLength: 500
+      responses:
+        '200':
+          description: The new role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  schemas:
+    BrandInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 80
+    Address:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          nullable: true
+        line1:
+          type: string
+        area:
+          type: string
+          nullable: true
+        city:
+          type: string
+        phone:
+          type: string
+        isDefault:
+          type: boolean

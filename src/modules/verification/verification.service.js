@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { assertShopAccess } from '../../lib/shopAccess.js';
+import { notifyVerification } from '../notifications/notifications.events.js';
 
 const LEVELS = [
   'UNVERIFIED',
@@ -200,6 +201,9 @@ export async function submitVerification(user, shopId, { targetLevel, documents 
     });
     return v;
   });
+  // return ownerRow(await loadVerification(created.id));
+  
+  await notifyVerification(shopId, 'submitted', { level: targetLevel, verificationId: created.id });
   return ownerRow(await loadVerification(created.id));
 }
 
@@ -283,6 +287,8 @@ export async function resubmit(user, id, documents) {
     }
     await audit(tx, user.id, 'verification.resubmitted', 'ShopVerification', id, { score });
   });
+  // return ownerRow(await loadVerification(id));
+  await notifyVerification(v.shopId, 'resubmitted', { verificationId: id });
   return ownerRow(await loadVerification(id));
 }
 
@@ -399,6 +405,7 @@ export async function approve(admin, id) {
       level: v.targetLevel,
     });
   });
+  await notifyVerification(v.shopId, 'approved', { level: v.targetLevel, verificationId: id });
   return getForAdmin(id);
 }
 
@@ -428,6 +435,7 @@ export async function requestCorrection(admin, id, { note, documentIds }) {
       documentIds: wanted,
     });
   });
+  await notifyVerification(v.shopId, 'correction', { note, verificationId: id });
   return getForAdmin(id);
 }
 
@@ -443,6 +451,7 @@ export async function reject(admin, id, reason) {
     if (changed.count !== 1) throw new AppError(409, 'This request was just handled by someone else');
     await audit(tx, admin.id, 'verification.rejected', 'ShopVerification', id, { reason });
   });
+  await notifyVerification(v.shopId, 'rejected', { note: reason, verificationId: id });
   return getForAdmin(id);
 }
 
@@ -466,6 +475,7 @@ export async function revokeShop(admin, shopId, reason) {
       fromLevel: shop.verificationLevel,
     });
   });
+  await notifyVerification(shopId, 'revoked', { note: reason });
   return { shopId, level: 'UNVERIFIED' };
 }
 

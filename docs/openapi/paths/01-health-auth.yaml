@@ -1,0 +1,308 @@
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: health
+      summary: Is the API running?
+      responses:
+        '200':
+          description: The API is running.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: ok
+                      uptime:
+                        type: number
+  /health/db:
+    get:
+      tags: [Health]
+      operationId: healthDb
+      summary: Is the database reachable?
+      responses:
+        '200':
+          description: The database answers.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      db:
+                        type: string
+                        example: ok
+        '500':
+          description: The database is not reachable.
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      operationId: register
+      summary: Create an account (customer or shop owner) and log in
+      description: Admin accounts cannot be created here. With the header X-Auth-Mode set to cookie, the refresh token goes into an httpOnly cookie.
+      parameters:
+        - $ref: '#/components/parameters/XAuthMode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 80
+                email:
+                  type: string
+                  format: email
+                phone:
+                  type: string
+                  pattern: '^01\d{9}$'
+                  example: '01712345678'
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 72
+                role:
+                  type: string
+                  enum: [CUSTOMER, SHOP_OWNER]
+                  default: CUSTOMER
+      responses:
+        '201':
+          description: Account created and logged in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Log in
+      description: The same 401 answer for an unknown email and a wrong password. Only failed attempts count toward the rate limit.
+      parameters:
+        - $ref: '#/components/parameters/XAuthMode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: customer@vendorshub.test
+                password:
+                  type: string
+                  example: Password123!
+      responses:
+        '200':
+          description: Logged in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshSession
+      summary: Swap a refresh token for a new token pair
+      description: The token comes from the body (JSON mode) or from the session cookie (cookie mode, which also needs the X-Auth-Mode header; 403 without it). Every refresh rotates the token; an old token gives 401.
+      parameters:
+        - $ref: '#/components/parameters/XAuthMode'
+      security:
+        - {}
+        - sessionCookie: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: A new token pair.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: End this session (revokes the refresh token and clears the cookie)
+      parameters:
+        - $ref: '#/components/parameters/XAuthMode'
+      security:
+        - {}
+        - sessionCookie: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Logged out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      operationId: getMe
+      summary: My account
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The logged-in user.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/change-password:
+    post:
+      tags: [Auth]
+      operationId: changePassword
+      summary: Change my password (logs out every device)
+      description: A wrong old password answers 400, not 401, so a frontend does not mistake it for an expired session.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [oldPassword, newPassword]
+              properties:
+                oldPassword:
+                  type: string
+                newPassword:
+                  type: string
+                  minLength: 8
+                  maxLength: 72
+      responses:
+        '200':
+          description: Password changed; log in again.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/auth/forgot-password:
+    post:
+      tags: [Auth]
+      operationId: forgotPassword
+      summary: Ask for a password reset link
+      description: Always the same 200 answer, so nobody can find out which emails are registered. The link is valid for 60 minutes and only once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: The same answer for every email.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/auth/reset-password:
+    post:
+      tags: [Auth]
+      operationId: resetPassword
+      summary: Set a new password with the token from the reset link
+      description: Logs out every device. An unknown, used or expired token answers 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token:
+                  type: string
+                newPassword:
+                  type: string
+                  minLength: 8
+                  maxLength: 72
+      responses:
+        '200':
+          description: Password updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'

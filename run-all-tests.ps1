@@ -8,19 +8,38 @@ catch {
     exit 1
 }
 
-Write-Host 'Resetting the demo data (npx prisma db seed) ...'
-& npx prisma db seed | Out-Null
+if (-not (Test-Path 'prisma/seed.js')) {
+    Write-Host 'prisma/seed.js was not found. Run this from the project root.' -ForegroundColor Red
+    exit 1
+}
+
+Write-Host 'Resetting the demo data (prisma/seed.js) ...'
+& node --env-file=.env prisma/seed.js | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host 'Seeding failed. Run "npx prisma db seed" by hand to see the error.' -ForegroundColor Red
+    Write-Host 'Seeding failed. Run "node --env-file=.env prisma/seed.js" by hand to see the error.' -ForegroundColor Red
     exit 1
 }
 
 $suites = @(
     'test-cart.ps1',
     'test-checkout.ps1',
+    'test-split-orders.ps1',
     'test-bargain.ps1',
     'test-orders-reviews.ps1',
     'test-verification.ps1',
+    'test-dashboards.ps1',
+    'test-catalog-admin.ps1',
+    'test-users-staff.ps1',
+    'test-password-reset.ps1',
+    'test-uploads.ps1',
+    'test-returns.ps1',
+    'test-disputes.ps1',
+    'test-notifications.ps1',
+    'test-shop-photos.ps1',
+    'test-notify-events.ps1',
+    'test-try-on.ps1',
+    'test-cookie-auth.ps1',
+    'test-openapi.ps1',
     'test-security.ps1'
 )
 
