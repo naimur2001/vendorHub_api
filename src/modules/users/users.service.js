@@ -167,3 +167,74 @@ export async function setUserRole(admin, id, { role, reason }) {
   });
   return { userId: id, role };
 }
+
+
+
+// ---------- my shops (entry point for the owner area) ----------
+
+const MAX_MY_SHOPS = 50;
+
+// Only the fields the owner area needs: never the pre-check score, admin notes, documents or ownerId.
+const myShopSelect = {
+  id: true,
+  name: true,
+  slug: true,
+  isActive: true,
+  verificationLevel: true,
+  levelFloor: true,
+  shopNumber: true,
+  createdAt: true,
+  market: { select: { id: true, name: true, slug: true } },
+  verifications: {
+    orderBy: { submittedAt: 'desc' },
+    take: 1,
+    select: { id: true, status: true, targetLevel: true, submittedAt: true },
+  },
+};
+
+const toMyShop = (shop, membership, staffTitle) => {
+  const v = shop.verifications[0];
+  return {
+    id: shop.id,
+    name: shop.name,
+    slug: shop.slug,
+    isActive: shop.isActive,
+    membership,
+    staffTitle,
+    verificationLevel: shop.verificationLevel,
+    market: shop.market,
+    levelFloor: shop.levelFloor,
+    shopNumber: shop.shopNumber,
+    // ShopVerification has no createdAt; the moment it was submitted is the right "created" time
+    latestVerification: v
+      ? { id: v.id, status: v.status, targetLevel: v.targetLevel, createdAt: v.submittedAt }
+      : null,
+    createdAt: shop.createdAt,
+  };
+};
+
+// The shops the user owns or works at: owned first, then staff; oldest first in each group.
+// Shops deactivated by an admin are included, so the owner can see that state.
+// A shop the user both owns and works at is listed once, as OWNER.
+export async function listMyShops(userId) {
+  const [owned, memberships] = await Promise.all([
+    prisma.shop.findMany({
+      where: { ownerId: userId },
+      orderBy: { createdAt: 'asc' },
+      take: MAX_MY_SHOPS,
+      select: myShopSelect,
+    }),
+    prisma.shopStaff.findMany({
+      where: { userId },
+      orderBy: { shop: { createdAt: 'asc' } }, // ShopStaff has no createdAt; the shop's age decides the order
+      take: MAX_MY_SHOPS,
+      select: { title: true, shop: { select: myShopSelect } },
+    }),
+  ]);
+
+  const ownedIds = new Set(owned.map((s) => s.id));
+  return [
+    ...owned.map((s) => toMyShop(s, 'OWNER', null)),
+    ...memberships.filter((m) => !ownedIds.has(m.shop.id)).map((m) => toMyShop(m.shop, 'STAFF', m.title ?? null)),
+  ].slice(0, MAX_MY_SHOPS);
+}

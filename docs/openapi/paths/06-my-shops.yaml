@@ -1,0 +1,92 @@
+paths:
+  /api/v1/users/me/shops:
+    get:
+      tags: [Profile]
+      operationId: listMyShops
+      summary: The shops I own or work at, with their latest verification request
+      description: >-
+        Entry point for the shop owner area. Owned shops first, then shops where I am staff; oldest
+        first in each group. Shops deactivated by an admin are included so the owner can see that
+        state. A shop I both own and work at is listed once, as OWNER. A customer gets an empty list.
+        At most 50 shops. Only the listed fields are returned (never the pre-check score, admin notes,
+        documents or the owner id).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: My shops.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MyShop'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+  schemas:
+    VerificationStatus:
+      type: string
+      enum: [PENDING, AUTO_FLAGGED, CORRECTION_REQUESTED, APPROVED, REJECTED, REVOKED]
+    MyShop:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: TechZone Electronics
+        slug:
+          type: string
+          example: techzone-electronics
+        isActive:
+          type: boolean
+          description: False when an admin deactivated the shop.
+        membership:
+          type: string
+          enum: [OWNER, STAFF]
+        staffTitle:
+          type: string
+          nullable: true
+          description: The staff title for STAFF, null for OWNER.
+        verificationLevel:
+          $ref: '#/components/schemas/VerificationLevel'
+        market:
+          allOf:
+            - $ref: '#/components/schemas/IdNameSlug'
+          nullable: true
+        levelFloor:
+          type: string
+          nullable: true
+          example: Level 3
+        shopNumber:
+          type: string
+          nullable: true
+          example: Shop 42
+        latestVerification:
+          type: object
+          nullable: true
+          description: The newest verification request of this shop, or null if none.
+          properties:
+            id:
+              type: string
+              format: uuid
+            status:
+              $ref: '#/components/schemas/VerificationStatus'
+            targetLevel:
+              $ref: '#/components/schemas/VerificationLevel'
+            createdAt:
+              type: string
+              format: date-time
+              description: When the request was submitted.
+        createdAt:
+          type: string
+          format: date-time

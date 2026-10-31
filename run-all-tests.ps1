@@ -30,6 +30,7 @@ $suites = @(
     'test-dashboards.ps1',
     'test-catalog-admin.ps1',
     'test-users-staff.ps1',
+    'test-my-shops.ps1',
     'test-password-reset.ps1',
     'test-uploads.ps1',
     'test-returns.ps1',
