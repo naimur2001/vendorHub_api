@@ -54,6 +54,11 @@ $cardKeys = 'availability,bargainAvailable,brand,category,createdAt,highestPrice
 $all = Call '/products?limit=50'
 Check 'the list works' $all.status 200
 $total = $all.json.meta.pagination.total
+if ($total -gt 50) {
+    Write-Host "STOP: $total products found. This test expects the normal seed data." -ForegroundColor Red
+    Write-Host 'Run: node --env-file=.env prisma/seed.js   then run this test again.' -ForegroundColor Red
+    exit 1
+}
 $full = @($all.json.data)
 Check 'with limit 50 everything fits on one page' $full.Count $total
 Check 'only the card fields are returned (no stockQty, no minOfferPercent)' ((@($full[0].PSObject.Properties.Name) | Sort-Object) -join ',') $cardKeys
