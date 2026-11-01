@@ -16,6 +16,7 @@ const adminOnly = [authenticate, requireRole('ADMIN')];
 
 // authenticate is applied per route because this router is mounted at /api/v1
 router.patch('/users/me', authenticate, validate(updateProfileSchema), c.updateProfile);
+router.get('/users/me/shops', authenticate, c.listMyShops);
 router.get('/users/me/addresses', authenticate, c.listAddresses);
 router.post('/users/me/addresses', authenticate, validate(addressSchema), c.createAddress);
 router.patch('/users/me/addresses/:id', authenticate, validate(addressUpdateSchema), c.updateAddress);

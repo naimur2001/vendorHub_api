@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 
@@ -32,52 +33,110 @@ export async function listBrands() {
   return rows.map((b) => ({ id: b.id, name: b.name, productCount: b._count.products }));
 }
 
+// GET /products: filtering, grouping, sorting, counting and paging happen IN THE DATABASE,
+// so one request reads only one page of products. Every user value is passed as a parameter
+// (Prisma.sql); the only hand-written SQL pieces are fixed texts such as the ORDER BY variants.
+const RANK_TO_AVAILABILITY = { 4: 'IN_STOCK', 3: 'AVAILABLE', 2: 'LIMITED', 1: 'OUT_OF_STOCK' };
+
+const ORDER_BY = {
+  newest: Prisma.sql`fp."createdAt" DESC, fp.id ASC`,
+  price_asc: Prisma.sql`m."lowestPrice" ASC, fp.id ASC`,
+  price_desc: Prisma.sql`m."lowestPrice" DESC, fp.id ASC`,
+};
+
+
+// "%" and "_" (and the escape character itself) in a search text are normal characters, not wildcards.
+const likePattern = (text) => `%${text.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+
 export async function listProducts(query) {
   const { q, category, brand, minPrice, maxPrice, shopId, marketId, availableOnly, sort, page, limit } = query;
 
-  // Filters that apply to the shop listing (price, shop, market, availability)
-  const listingWhere = {
-    isActive: true,
-    shop: { isActive: true, ...(marketId && { marketId }) },
-    ...(shopId && { shopId }),
-    ...((minPrice !== undefined || maxPrice !== undefined) && {
-      price: {
-        ...(minPrice !== undefined && { gte: minPrice }),
-        ...(maxPrice !== undefined && { lte: maxPrice }),
-      },
-    }),
-    ...(availableOnly && { availability: { not: 'OUT_OF_STOCK' } }),
-  };
+  // Product filters, written on Product columns only, so PostgreSQL can use their indexes
+  // (trigram index on the title, existing indexes on brandId and categoryId).
+  const productConds = [Prisma.sql`p."isActive" = true`];
+  if (q) {
+    const pattern = likePattern(q);
+    productConds.push(Prisma.sql`(p.title ILIKE ${pattern} ESCAPE '\\'
+      OR p."brandId" IN (SELECT id FROM "Brand" WHERE name ILIKE ${pattern} ESCAPE '\\'))`);
+  }
+  if (category) {
+    // the category itself or any of its subcategories
+    productConds.push(Prisma.sql`p."categoryId" IN (
+      SELECT id FROM "Category" WHERE slug = ${category}
+      UNION
+      SELECT id FROM "Category" WHERE "parentId" IN (SELECT id FROM "Category" WHERE slug = ${category}))`);
+  }
+  if (brand) {
+    productConds.push(Prisma.sql`p."brandId" IN (SELECT id FROM "Brand" WHERE lower(name) = lower(${brand}))`);
+  }
 
-  // A product matches if at least one of its listings matches
-  const where = {
-    isActive: true,
-    listings: { some: listingWhere },
-    ...(q && {
-      OR: [
-        { title: { contains: q, mode: 'insensitive' } },
-        { brand: { name: { contains: q, mode: 'insensitive' } } },
-      ],
-    }),
-    ...(category && { category: { OR: [{ slug: category }, { parent: { slug: category } }] } }),
-    ...(brand && { brand: { name: { equals: brand, mode: 'insensitive' } } }),
-  };
+  // Listing filters: a product appears if at least ONE of its listings passes all of them,
+  // and its price range, shop count, availability and bargain flag come from those listings only.
+  const listingConds = [Prisma.sql`l."isActive" = true`, Prisma.sql`s."isActive" = true`];
+  if (marketId) listingConds.push(Prisma.sql`s."marketId" = ${marketId}`);
+  if (shopId) listingConds.push(Prisma.sql`l."shopId" = ${shopId}`);
+  if (minPrice !== undefined) listingConds.push(Prisma.sql`l.price >= ${minPrice}`);
+  if (maxPrice !== undefined) listingConds.push(Prisma.sql`l.price <= ${maxPrice}`);
+  if (availableOnly) listingConds.push(Prisma.sql`l.availability <> 'OUT_OF_STOCK'`);
 
-  const rows = await prisma.product.findMany({
-    where,
-    include: {
-      brand: { select: { id: true, name: true } },
-      category: { select: { id: true, name: true, slug: true } },
-      // only the listings that passed the filters, so price stats match the filters
-      listings: {
-        where: listingWhere,
-        select: { price: true, availability: true, bargainEnabled: true },
-      },
-    },
-  });
+  // fp: the products that pass the product filters.
+  // m:  per product, the statistics of its MATCHING listings; only the listings of fp are read,
+  //     so a search or a category filter groups a small part of the listings, not all of them.
+  const base = Prisma.sql`
+    WITH fp AS (
+      SELECT p.id, p."createdAt"
+      FROM "Product" p
+      WHERE ${Prisma.join(productConds, ' AND ')}
+    ),
+    m AS (
+      SELECT l."productId",
+             MIN(l.price) AS "lowestPrice",
+             MAX(l.price) AS "highestPrice",
+             COUNT(*)::int AS "shopCount",
+             MAX(CASE l.availability
+                   WHEN 'IN_STOCK' THEN 4 WHEN 'AVAILABLE' THEN 3 WHEN 'LIMITED' THEN 2 ELSE 1
+                 END) AS "availabilityRank",
+             BOOL_OR(l."bargainEnabled") AS "bargainAvailable"
+      FROM "ShopListing" l
+      JOIN fp ON fp.id = l."productId"
+      JOIN "Shop" s ON s.id = l."shopId"
+      WHERE ${Prisma.join(listingConds, ' AND ')}
+      GROUP BY l."productId"
+    )`;
 
-  const items = rows.map((p) => {
-    const prices = p.listings.map((l) => l.price);
+  // One page, in a stable order (id breaks ties), with the total of all matches in every row.
+  const offset = (page - 1) * limit;
+  const rows = await prisma.$queryRaw`
+    ${base}
+    SELECT fp.id, m."lowestPrice", m."highestPrice", m."shopCount", m."availabilityRank", m."bargainAvailable",
+           COUNT(*) OVER() AS total
+    FROM fp
+    JOIN m ON m."productId" = fp.id
+    ORDER BY ${ORDER_BY[sort]}
+    LIMIT ${limit} OFFSET ${offset}`;
+
+  // An empty page past the end has no row to carry the total, so it needs one extra count.
+  let total = 0;
+  if (rows.length > 0) total = Number(rows[0].total);
+  else if (page > 1) {
+    const counted = await prisma.$queryRaw`${base} SELECT COUNT(*) AS total FROM fp JOIN m ON m."productId" = fp.id`;
+    total = Number(counted[0].total);
+  }
+
+  // Only this page's products are loaded with Prisma; the SQL order is kept.
+  const products = rows.length
+    ? await prisma.product.findMany({
+        where: { id: { in: rows.map((r) => r.id) } },
+        include: {
+          brand: { select: { id: true, name: true } },
+          category: { select: { id: true, name: true, slug: true } },
+        },
+      })
+    : [];
+  const byId = new Map(products.map((p) => [p.id, p]));
+
+  const items = rows.map((r) => {
+    const p = byId.get(r.id);
     return {
       id: p.id,
       slug: p.slug,
@@ -86,28 +145,16 @@ export async function listProducts(query) {
       category: p.category,
       image: p.images[0] ?? null,
       msrp: p.msrp,
-      lowestPrice: Math.min(...prices),
-      highestPrice: Math.max(...prices),
-      shopCount: p.listings.length,
-      availability: bestAvailability(p.listings),
-      bargainAvailable: p.listings.some((l) => l.bargainEnabled),
+      lowestPrice: r.lowestPrice,
+      highestPrice: r.highestPrice,
+      shopCount: r.shopCount,
+      availability: RANK_TO_AVAILABILITY[r.availabilityRank],
+      bargainAvailable: r.bargainAvailable,
       createdAt: p.createdAt,
     };
   });
 
-  const sorters = {
-    newest: (a, b) => b.createdAt - a.createdAt,
-    price_asc: (a, b) => a.lowestPrice - b.lowestPrice,
-    price_desc: (a, b) => b.lowestPrice - a.lowestPrice,
-  };
-  items.sort(sorters[sort]);
-
-  const total = items.length;
-  const start = (page - 1) * limit;
-  return {
-    items: items.slice(start, start + limit),
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-  };
+  return { items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
 }
 
 export async function getProduct(slug, listingId) {

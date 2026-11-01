@@ -93,7 +93,13 @@ paths:
             enum: [newest, price_asc, price_desc]
             default: newest
         - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/Limit'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 12
       responses:
         '200':
           description: One page of product cards.

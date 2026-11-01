@@ -24,12 +24,14 @@ $suites = @(
     'test-cart.ps1',
     'test-checkout.ps1',
     'test-split-orders.ps1',
+    'test-catalog-list.ps1',
     'test-bargain.ps1',
     'test-orders-reviews.ps1',
     'test-verification.ps1',
     'test-dashboards.ps1',
     'test-catalog-admin.ps1',
     'test-users-staff.ps1',
+    'test-my-shops.ps1',
     'test-password-reset.ps1',
     'test-uploads.ps1',
     'test-returns.ps1',
@@ -42,7 +44,6 @@ $suites = @(
     'test-openapi.ps1',
     'test-security.ps1'
 )
-
 $results = @()
 foreach ($s in $suites) {
     if (-not (Test-Path ".\$s")) {

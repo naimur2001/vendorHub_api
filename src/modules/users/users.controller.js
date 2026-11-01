@@ -4,6 +4,10 @@ export const updateProfile = async (req, res) => {
   res.json({ success: true, data: await s.updateProfile(req.user.id, req.body) });
 };
 
+export const listMyShops = async (req, res) => {
+  res.json({ success: true, data: await s.listMyShops(req.user.id) });
+};
+
 export const listAddresses = async (req, res) => {
   res.json({ success: true, data: await s.listAddresses(req.user.id) });
 };
