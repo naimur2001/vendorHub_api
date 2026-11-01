@@ -311,6 +311,7 @@ model Product {
 
   @@index([categoryId])
   @@index([brandId])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin) // fast ILIKE '%text%' search on titles (pg_trgm)
 }
 
 model ShopListing {
