@@ -6,6 +6,14 @@ import { logger } from './logger.js';
 
 const OUTBOX = path.join(process.cwd(), 'logs', 'outbox.jsonl');
 
+// Reserved domains (RFC 2606 / RFC 6761) can never receive mail. Test suites and demo accounts use them.
+const RESERVED_DOMAIN = /\.(test|example|invalid|localhost)$/i;
+
+function isReservedAddress(address) {
+  const domain = String(address).split('@')[1] ?? '';
+  return RESERVED_DOMAIN.test(domain.trim());
+}
+
 // One SMTP connection setup for the whole app, created on first use.
 let transporter = null;
 
@@ -43,8 +51,32 @@ async function deliverSmtp({ to, subject, text }) {
   logger.info({ to: maskEmail(to), subject, messageId: info.messageId }, 'mail sent (smtp)');
 }
 
+// DEMO / TESTS ONLY: the mail text (with any link) goes into the log and, outside production, into
+// logs/outbox.jsonl so the test suites can read the link.
+async function deliverLog({ to, subject, text }) {
+  logger.info({ to, subject, text }, 'mail (log driver)');
+  if (env.NODE_ENV !== 'production') {
+    await mkdir(path.dirname(OUTBOX), { recursive: true });
+    await appendFile(OUTBOX, `${JSON.stringify({ at: new Date().toISOString(), to, subject, text })}\n`);
+  }
+}
+
 // The single place that sends mail. Callers do not know which driver is used.
 export async function sendMail({ to, subject, text }) {
+  if (env.MAIL_MODE !== 'smtp' && env.MAIL_MODE !== 'log') {
+    throw new Error(`Unsupported MAIL_MODE: ${env.MAIL_MODE}`);
+  }
+
+  // Test addresses never go to a real mail server (they would bounce and hurt the sender's reputation).
+  if (env.MAIL_MODE === 'smtp' && isReservedAddress(to)) {
+    if (env.NODE_ENV === 'production') {
+      logger.warn({ to: maskEmail(to), subject }, 'mail skipped (reserved test domain)');
+      return;
+    }
+    await deliverLog({ to, subject, text }); // development: the tests still find the link
+    return;
+  }
+
   if (env.MAIL_MODE === 'smtp') {
     // Sent in the background: the API answers at once, so the response time cannot reveal
     // whether an email address is registered (an SMTP send takes 1-3 seconds).
@@ -54,13 +86,5 @@ export async function sendMail({ to, subject, text }) {
     return;
   }
 
-  if (env.MAIL_MODE !== 'log') throw new Error(`Unsupported MAIL_MODE: ${env.MAIL_MODE}`);
-
-  // DEMO ONLY: the mail text (with the reset link) goes into the log. Used for development and tests.
-  logger.info({ to, subject, text }, 'mail (log driver)');
-  // Outside production the mail is also appended to a file, so the tests can read the reset link.
-  if (env.NODE_ENV !== 'production') {
-    await mkdir(path.dirname(OUTBOX), { recursive: true });
-    await appendFile(OUTBOX, `${JSON.stringify({ at: new Date().toISOString(), to, subject, text })}\n`);
-  }
+  await deliverLog({ to, subject, text });
 }
