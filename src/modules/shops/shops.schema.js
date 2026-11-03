@@ -57,3 +57,14 @@ export const updateShopSchema = z
   })
   .strict()
   .refine((o) => Object.keys(o).length > 0, { message: 'Provide at least one field to update' });
+
+
+  
+// GET /shops: public shop search by name; most trusted shops first.
+export const shopSearchQuery = z.object({
+  q: z.string().trim().min(1).max(100).optional(),
+  marketId: z.string().uuid().optional(),
+  verifiedOnly: bool.optional(), // true = verificationLevel is not UNVERIFIED
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(20).default(10),
+});

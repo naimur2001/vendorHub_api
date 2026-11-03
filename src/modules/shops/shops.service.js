@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 
@@ -292,4 +293,105 @@ export async function updateShop(user, shopId, input) {
     if (!market) throw new AppError(404, 'Market not found');
   }
   return prisma.shop.update({ where: { id: shopId }, data: input });
+}
+
+
+
+// ---------- public shop search ----------
+
+// "%" and "_" (and the escape character itself) in a search text are normal characters, not wildcards.
+const escapeLike = (text) => text.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+
+// Public search by shop name. Filtering, ranking, counting and paging happen in the database;
+// every user value is a parameter. Only public card fields are returned: never the owner,
+// contact data, stock numbers, offer minimums or verification internals.
+export async function searchShops({ q, marketId, verifiedOnly, page, limit }) {
+  const conds = [Prisma.sql`s."isActive" = true`];
+  if (marketId) conds.push(Prisma.sql`s."marketId" = ${marketId}`);
+  if (verifiedOnly) conds.push(Prisma.sql`s."verificationLevel" <> 'UNVERIFIED'`);
+
+  // With q: names that START with q first, then names that only contain it.
+  // Inside each group (and without q): most trusted first, then name A-Z, then id (stable pages).
+  let orderBy = Prisma.sql`s."verificationLevel" DESC, s.name ASC, s.id ASC`;
+  if (q) {
+    const escaped = escapeLike(q);
+    conds.push(Prisma.sql`s.name ILIKE ${`%${escaped}%`} ESCAPE '\\'`);
+    orderBy = Prisma.sql`CASE WHEN s.name ILIKE ${`${escaped}%`} ESCAPE '\\' THEN 0 ELSE 1 END ASC, ${orderBy}`;
+  }
+  const where = Prisma.join(conds, ' AND ');
+
+  const offset = (page - 1) * limit;
+  const rows = await prisma.$queryRaw`
+    SELECT s.id, COUNT(*) OVER() AS total
+    FROM "Shop" s
+    WHERE ${where}
+    ORDER BY ${orderBy}
+    LIMIT ${limit} OFFSET ${offset}`;
+
+  // An empty page past the end has no row to carry the total, so it needs one extra count.
+  let total = 0;
+  if (rows.length > 0) total = Number(rows[0].total);
+  else if (page > 1) {
+    const counted = await prisma.$queryRaw`SELECT COUNT(*) AS total FROM "Shop" s WHERE ${where}`;
+    total = Number(counted[0].total);
+  }
+
+  // Card data for this page only: shop fields, cover photo, shop-trust rating, active listings.
+  const ids = rows.map((r) => r.id);
+  const [shops, ratings, listingCounts] = ids.length
+    ? await Promise.all([
+        prisma.shop.findMany({
+          where: { id: { in: ids } },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            logoUrl: true,
+            levelFloor: true,
+            shopNumber: true,
+            verificationLevel: true,
+            market: { select: { id: true, name: true, slug: true } },
+            photos: { where: { isCover: true }, take: 1, select: { url: true, kind: true, verifiedAt: true } },
+          },
+        }),
+        prisma.review.groupBy({
+          by: ['shopId'],
+          where: { shopId: { in: ids }, type: 'SHOP_TRUST' },
+          _avg: { rating: true },
+          _count: { rating: true },
+        }),
+        prisma.shopListing.groupBy({
+          by: ['shopId'],
+          where: { shopId: { in: ids }, isActive: true },
+          _count: { _all: true },
+        }),
+      ])
+    : [[], [], []];
+
+  const shopOf = new Map(shops.map((s) => [s.id, s]));
+  const ratingOf = new Map(ratings.map((r) => [r.shopId, r]));
+  const countOf = new Map(listingCounts.map((c) => [c.shopId, c._count._all]));
+
+  // Built field by field, in the SQL order, so nothing extra can slip into the answer.
+  const items = ids.map((id) => {
+    const s = shopOf.get(id);
+    const cover = s.photos[0];
+    const rating = ratingOf.get(id);
+    return {
+      id: s.id,
+      name: s.name,
+      slug: s.slug,
+      logoUrl: s.logoUrl,
+      levelFloor: s.levelFloor,
+      shopNumber: s.shopNumber,
+      verificationLevel: s.verificationLevel,
+      market: s.market,
+      coverPhoto: cover ? { url: cover.url, kind: cover.kind, verified: cover.verifiedAt !== null } : null,
+      ratingAverage: rating ? round1(rating._avg.rating) : null,
+      reviewCount: rating ? rating._count.rating : 0,
+      productCount: countOf.get(id) ?? 0,
+    };
+  });
+
+  return { items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
 }

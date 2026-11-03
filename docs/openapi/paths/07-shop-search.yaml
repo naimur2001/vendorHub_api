@@ -1,0 +1,138 @@
+paths:
+  /api/v1/shops:
+    get:
+      tags: [Shops]
+      operationId: searchShops
+      summary: Find shops by name (public); most trusted first
+      description: >-
+        Only active shops. With q, names that start with q come first, then names that only contain it;
+        inside each group the highest verification level first, then name A-Z, then id (stable pages).
+        Without q, the same order without the first rule. In q, % and _ are normal characters.
+        Only public card fields are returned (never the owner, contact data, stock numbers, offer
+        minimums or verification internals).
+      parameters:
+        - name: q
+          in: query
+          description: Part of the shop name (case-insensitive).
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: marketId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: verifiedOnly
+          in: query
+          description: true = leave out UNVERIFIED shops.
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - $ref: '#/components/parameters/Page'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 10
+      responses:
+        '200':
+          description: One page of shops.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ShopSearchItem'
+                  meta:
+                    type: object
+                    required: [pagination]
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+components:
+  schemas:
+    ShopSearchItem:
+      type: object
+      required:
+        - id
+        - name
+        - slug
+        - logoUrl
+        - levelFloor
+        - shopNumber
+        - verificationLevel
+        - market
+        - coverPhoto
+        - ratingAverage
+        - reviewCount
+        - productCount
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: TechZone Electronics
+        slug:
+          type: string
+          example: techzone-electronics
+        logoUrl:
+          type: string
+          nullable: true
+        levelFloor:
+          type: string
+          nullable: true
+          example: Level 3
+        shopNumber:
+          type: string
+          nullable: true
+          example: Shop 42
+        verificationLevel:
+          $ref: '#/components/schemas/VerificationLevel'
+        market:
+          type: object
+          nullable: true
+          required: [id, name, slug]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            slug:
+              type: string
+        coverPhoto:
+          type: object
+          nullable: true
+          required: [url, kind, verified]
+          properties:
+            url:
+              type: string
+            kind:
+              type: string
+              enum: [EXTERIOR, SIGNBOARD, INTERIOR, DISPLAY, PANORAMA_360, OTHER]
+            verified:
+              type: boolean
+              description: True when an admin checked the photo against the real shop.
+        ratingAverage:
+          type: number
+          nullable: true
+          description: Average of the shop-trust reviews, one decimal; null without reviews.
+        reviewCount:
+          type: integer
+        productCount:
+          type: integer
+          description: Active listings of this shop.

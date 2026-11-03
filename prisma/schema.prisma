@@ -203,6 +203,7 @@ model Shop {
 
   @@index([marketId])
   @@index([verificationLevel])
+    @@index([name(ops: raw("gin_trgm_ops"))], type: Gin) // fast ILIKE search on shop names (pg_trgm)
 }
 
 model ShopStaff {

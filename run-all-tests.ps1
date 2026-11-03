@@ -25,6 +25,7 @@ $suites = @(
     'test-checkout.ps1',
     'test-split-orders.ps1',
     'test-catalog-list.ps1',
+    'test-shop-search.ps1',
     'test-bargain.ps1',
     'test-orders-reviews.ps1',
     'test-verification.ps1',

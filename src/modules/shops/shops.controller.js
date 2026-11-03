@@ -44,3 +44,10 @@ export const updateShop = async (req, res) => {
   const data = await shopService.updateShop(req.user, req.params.shopId, req.body);
   res.json({ success: true, data });
 };
+
+
+// public shop search
+export const searchShops = async (req, res) => {
+  const { items, pagination } = await shopService.searchShops(req.validated);
+  res.json({ success: true, data: items, meta: { pagination } });
+};
