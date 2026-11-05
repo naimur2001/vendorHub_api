@@ -129,12 +129,12 @@ $r = Upload $cust 'PUBLIC_IMAGE' $png 'image/png'
 Check 'a PNG uploads as a public image' $r.status 201
 $pubUrl = $r.json.data.url
 Need $pubUrl 'the public upload'
-Check 'the link points to the public folder' ($pubUrl -like "$root/uploads/public/*.png") $true
-Check 'the type is detected as PNG' $r.json.data.mimeType 'image/png'
+Check 'the link points to the media folder' ($pubUrl -like "$root/media/*.webp") $true
+Check 'the image is re-encoded to WebP' $r.json.data.mimeType 'image/webp'
 Check 'the size is recorded' ($r.json.data.size -gt 0) $true
 $f = Fetch $pubUrl $null
 Check 'anyone can open a public image' $f.status 200
-Check 'it is served as a PNG' ($f.type -like 'image/png*') $true
+Check 'it is served as WebP' ($f.type -like 'image/webp*') $true
 $r = Call 'PATCH' '/users/me' $cust @{ avatarUrl = $pubUrl }
 Check 'the link is accepted as an avatar' $r.status 200
 

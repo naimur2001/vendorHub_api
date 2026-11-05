@@ -6,7 +6,7 @@ import { env } from '../../config/env.js';
 import { detectFileType } from '../../lib/fileType.js';
 import { runTryOn } from '../../lib/tryOn.js';
 import { VIEWS } from './tryOn.schema.js';
-
+import { mediaFilePath } from '../../lib/storage.js';
 const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_GARMENT_BYTES = 8 * 1024 * 1024;
 
@@ -57,12 +57,14 @@ function readImage(file, label) {
 
 // The product photo: from our own upload folder, or downloaded (with a time and size limit).
 async function loadGarment(url) {
-  const ownPrefix = `${env.PUBLIC_API_URL}/uploads/public/`;
+  
+  const ownPrefix = `${env.PUBLIC_API_URL}/media/`;
   let buffer;
   try {
     if (url.startsWith(ownPrefix)) {
-      const name = path.basename(url.slice(ownPrefix.length)); // basename: no "../" tricks
-      buffer = await readFile(path.resolve(env.UPLOAD_DIR, 'public', name));
+      const file = mediaFilePath(url.slice(ownPrefix.length)); // only server-made <uuid>.webp names
+      if (!file) throw new Error('not a media file');
+      buffer = await readFile(file);
     } else {
       const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
       if (!res.ok) throw new Error(`status ${res.status}`);

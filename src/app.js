@@ -31,6 +31,7 @@ import returnRoutes from './modules/returns/returns.routes.js';
 import notificationRoutes from './modules/notifications/notifications.routes.js';
 import shopPhotoRoutes from './modules/shopPhotos/shopPhotos.routes.js';
 import tryOnRoutes from './modules/tryOn/tryOn.routes.js';
+import mediaRoutes from './modules/media/media.routes.js';
 
 export const app = express();
 
@@ -91,7 +92,8 @@ app.use(
     immutable: true,
   }),
 );
-
+// Processed public images (/media/<uuid>.webp): before the API rate limiter, like other static content.
+app.use(mediaRoutes);
 app.use('/api/v1', globalLimiter); // health checks and public images above are not limited
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1', catalogRoutes);

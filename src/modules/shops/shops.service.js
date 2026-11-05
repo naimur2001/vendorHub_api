@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
-
+import { presentImage } from '../../lib/storage.js';
 const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
 async function uniqueShopSlug(name) {
@@ -28,7 +28,7 @@ const round1 = (n) => (n === null || n === undefined ? null : Math.round(n * 10)
 export async function listMarkets() {
   const rows = await prisma.market.findMany({
     orderBy: { name: 'asc' },
-    include: { _count: { select: { shops: { where: { isActive: true } } } } },
+    include: { image: true, _count: { select: { shops: { where: { isActive: true } } } } },
   });
   return rows.map((m) => ({
     id: m.id,
@@ -37,6 +37,7 @@ export async function listMarkets() {
     city: m.city,
     address: m.address,
     shopCount: m._count.shops,
+    image: presentImage(m.image),
   }));
 }
 
@@ -44,6 +45,7 @@ export async function getMarket(slug) {
   const market = await prisma.market.findUnique({
     where: { slug },
     include: {
+      image: true,
       shops: {
         where: { isActive: true },
         orderBy: { name: 'asc' },
@@ -64,7 +66,9 @@ export async function getMarket(slug) {
   if (!market) throw new AppError(404, 'Market not found');
   // each shop card gets its cover photo (or null)
   return {
-    ...market,
+      ...market,
+    imageId: undefined, // internal reference, not part of the answer
+    image: presentImage(market.image),
     shops: market.shops.map(({ photos, ...s }) => ({
       ...s,
       coverPhoto: photos[0] ? { url: photos[0].url, kind: photos[0].kind, verified: photos[0].verifiedAt !== null } : null,

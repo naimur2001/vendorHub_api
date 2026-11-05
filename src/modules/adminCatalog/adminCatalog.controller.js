@@ -35,3 +35,11 @@ export const deactivateProduct = async (req, res) => {
   await s.deactivateProduct(req.user, req.params.id);
   res.json({ success: true, data: { message: 'Product deactivated' } });
 };
+
+
+
+export const setMarketImage = async (req, res) => ok(res, await s.setMarketImage(req.user, req.params.id, req.file));
+export const removeMarketImage = async (req, res) => {
+  await s.removeMarketImage(req.user, req.params.id);
+  removed(res, 'Market photo');
+};

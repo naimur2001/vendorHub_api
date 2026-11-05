@@ -1,6 +1,8 @@
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { uniqueSlug } from '../../lib/slug.js';
+import { processImage } from '../../lib/images.js';
+import { stageImage, removeImage, presentImage } from '../../lib/storage.js';
 
 const audit = (actorId, action, entityType, entityId, meta) =>
   prisma.auditLog.create({ data: { actorId, action, entityType, entityId, meta } });
@@ -143,7 +145,14 @@ export async function deleteMarket(admin, id) {
   if (market._count.shops > 0) {
     throw new AppError(409, 'This market still has shops', { shops: market._count.shops });
   }
+
   await prisma.market.delete({ where: { id } });
+  if (market.imageId) {
+    const img = await prisma.image.delete({ where: { id: market.imageId } });
+    await removeImage(img.key).catch(() => {});
+  }
+
+
   await audit(admin.id, 'catalog.market_deleted', 'Market', id, { name: market.name });
 }
 
@@ -236,4 +245,57 @@ export async function updateProduct(admin, id, input) {
 // Soft delete: orders point at products, so the product is deactivated, never removed.
 export async function deactivateProduct(admin, id) {
   await updateProduct(admin, id, { isActive: false });
+}
+
+
+
+
+// ---------- market photo (admin) ----------
+// Order: process -> publish new files -> database transaction -> delete old files.
+// The new files are published BEFORE the database points at them, so a market never points at a
+// missing file; if the transaction fails, the unreferenced new files are deleted again.
+const marketCard = (m) => ({ id: m.id, name: m.name, slug: m.slug, image: presentImage(m.image) });
+
+export async function setMarketImage(admin, id, file) {
+  if (!file) throw new AppError(400, 'Send exactly one photo in the multipart field "image"');
+  const market = await prisma.market.findUnique({ where: { id }, include: { image: true } });
+  if (!market) throw new AppError(404, 'Market not found');
+
+  const processed = await processImage(file.buffer, 'MARKET');
+  const staged = await stageImage(processed);
+  await staged.commit();
+
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      const image = await tx.image.create({
+        data: { key: staged.key, width: processed.width, height: processed.height, purpose: 'MARKET', ownerId: admin.id },
+      });
+      const m = await tx.market.update({ where: { id }, data: { imageId: image.id }, include: { image: true } });
+      if (market.image) await tx.image.delete({ where: { id: market.image.id } });
+      await tx.auditLog.create({
+        data: { actorId: admin.id, action: 'catalog.market_image_set', entityType: 'Market', entityId: id, meta: { name: market.name } },
+      });
+      return m;
+    });
+  } catch (err) {
+    await removeImage(staged.key).catch(() => {});
+    throw err;
+  }
+  if (market.image) await removeImage(market.image.key).catch(() => {}); // old files, after success
+  return marketCard(updated);
+}
+
+export async function removeMarketImage(admin, id) {
+  const market = await prisma.market.findUnique({ where: { id }, include: { image: true } });
+  if (!market) throw new AppError(404, 'Market not found');
+  if (!market.image) throw new AppError(404, 'This market has no photo');
+  await prisma.$transaction([
+    prisma.market.update({ where: { id }, data: { imageId: null } }),
+    prisma.image.delete({ where: { id: market.image.id } }),
+    prisma.auditLog.create({
+      data: { actorId: admin.id, action: 'catalog.market_image_removed', entityType: 'Market', entityId: id, meta: { name: market.name } },
+    }),
+  ]);
+  await removeImage(market.image.key).catch(() => {});
 }

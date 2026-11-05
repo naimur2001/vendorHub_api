@@ -1,0 +1,149 @@
+paths:
+  /api/v1/admin/markets/{marketId}/image:
+    put:
+      tags: [Admin]
+      operationId: adminSetMarketImage
+      summary: Set or replace a market's photo (re-encoded to WebP; the old files are deleted)
+      description: >-
+        Exactly one JPG, PNG or WebP photo in the multipart field "image", at least 800 x 450 pixels,
+        max 5 MB. The type is read from the content; every photo is decoded and re-encoded (no metadata,
+        no hidden data). 20 accepted uploads per 10 minutes per user. Audited as catalog.market_image_set.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: marketId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: The market with its new photo.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [id, name, slug, image]
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      name:
+                        type: string
+                      slug:
+                        type: string
+                      image:
+                        $ref: '#/components/schemas/ImageObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          description: The photo is larger than 5 MB.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The photo is too small (at least 800 x 450 pixels).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    delete:
+      tags: [Admin]
+      operationId: adminRemoveMarketImage
+      summary: Remove a market's photo (and its files); audited as catalog.market_image_removed
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: marketId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  schemas:
+    ImageObject:
+      type: object
+      required: [url, thumbUrl, width, height]
+      properties:
+        url:
+          type: string
+          description: Our own API origin, /media/<uuid>.webp
+        thumbUrl:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
+    Market:
+      type: object
+      required: [id, name, slug, city, address, image]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        city:
+          type: string
+        address:
+          type: string
+          nullable: true
+        latitude:
+          type: number
+          nullable: true
+          description: Detail answer only.
+        longitude:
+          type: number
+          nullable: true
+          description: Detail answer only.
+        shopCount:
+          type: integer
+          description: List answer only (active shops).
+        image:
+          allOf:
+            - $ref: '#/components/schemas/ImageObject'
+          nullable: true

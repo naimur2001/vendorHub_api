@@ -164,6 +164,8 @@ model Market {
   latitude  Float?
   longitude Float?
   shops     Shop[]
+  imageId   String? @unique
+  image     Image?  @relation(fields: [imageId], references: [id], onDelete: SetNull)
 }
 
 model Shop {
@@ -615,4 +617,18 @@ model ShopPhoto {
   file         FileUpload    @relation(fields: [fileId], references: [id])
 
   @@index([shopId, sortOrder])
+}
+
+
+// A processed public image: files <key>.webp and <key>-thumb.webp in the media folder.
+// No URL or file name is stored; URLs are built from the key.
+model Image {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  width     Int
+  height    Int
+  purpose   String // e.g. "MARKET"
+  ownerId   String?
+  createdAt DateTime @default(now())
+  market    Market?
 }

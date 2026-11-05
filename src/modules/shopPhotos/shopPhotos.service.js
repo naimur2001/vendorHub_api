@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { env } from '../../config/env.js';
-
+import { imageUrls } from '../../lib/storage.js';
 const MAX_PHOTOS = 12;
 
 const present = (p) => ({
@@ -67,7 +67,7 @@ export async function addPhoto(user, shopId, { uploadId, kind, caption, isCover 
       data: {
         shopId,
         fileId: uploadId,
-        url: `${env.PUBLIC_API_URL}/uploads/public/${file.storedName}`,
+        url: imageUrls(file.storedName.replace(/\.webp$/, '')).url,
         kind,
         caption: caption ?? null,
         sortOrder: count,

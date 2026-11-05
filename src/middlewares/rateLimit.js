@@ -25,3 +25,18 @@ export const authLimiter = make(env.RATE_LIMIT_AUTH_MAX);
 // Login and change-password: only FAILED attempts count, so real users are never locked out
 // but password guessing is stopped. (The counter lives in memory and resets when the server restarts.)
 export const failedAttemptLimiter = make(env.RATE_LIMIT_AUTH_MAX, { skipSuccessfulRequests: true });
+
+
+
+// Uploads: at most 20 ACCEPTED uploads per 10 minutes per user. Always on (also in development).
+// Rejected files (4xx) do not use up the allowance; they are cheap, because they are refused
+// before any heavy work. Must run AFTER authenticate, because it counts per user.
+export const uploadLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 20,
+  skipFailedRequests: true,
+  keyGenerator: (req) => `upload:${req.user.id}`,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { success: false, error: { message: 'Too many uploads. Please try again later.' } },
+});
