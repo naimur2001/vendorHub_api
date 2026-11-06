@@ -19,7 +19,7 @@ const WEBP_QUALITY = 82;
 
 // Size profiles: the main and thumbnail widths, and the smallest accepted photo.
 export const IMAGE_PROFILES = Object.freeze({
-  MARKET: Object.freeze({ width: 1600, thumbWidth: 600, minWidth: 800, minHeight: 450 }),
+  MARKET: Object.freeze({ width: 1600, thumbWidth: 600, minWidth: 480, minHeight: 270 }),
   GENERAL: Object.freeze({ width: 2048, thumbWidth: 600, minWidth: 1, minHeight: 1 }),
 });
 

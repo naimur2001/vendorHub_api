@@ -96,7 +96,7 @@ await rejects('a PHP file is rejected', processImage(Buffer.from('<?php system($
 await rejects('a GIF is rejected', processImage(await solid(900, 500).gif().toBuffer(), 'MARKET'), 400);
 await rejects('a PDF is rejected', processImage(Buffer.from('%PDF-1.4\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF'), 'MARKET'), 400);
 await rejects('an empty file is rejected', processImage(Buffer.alloc(0), 'MARKET'), 400);
-await rejects('a 500 x 300 photo is too small for a market', processImage(await solid(500, 300).jpeg().toBuffer(), 'MARKET'), 422);
+await rejects('a 400 x 200 photo is too small for a market', processImage(await solid(400, 200).jpeg().toBuffer(), 'MARKET'), 422);
 await rejects('a decompression bomb (30000 x 30000 claimed) is rejected', processImage(claimedHugePng(30000, 30000), 'MARKET'), 400);
 
 // the GENERAL profile has no minimum size

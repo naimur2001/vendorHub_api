@@ -110,7 +110,7 @@ Check 'a rejected file gets the fixed message' (Put 'script.svg' 'image/svg+xml'
 Check 'two files in one request: 400' (Send $url 'PUT' $admin @('image=valid.jpg;type=image/jpeg', 'image=valid.png;type=image/png')).status 400
 Check 'a wrong field name: 400' (Send $url 'PUT' $admin @('photo=valid.jpg;type=image/jpeg')).status 400
 Check 'a 6 MB file: 413' (Put 'huge.jpg' 'image/jpeg' $admin).status 413
-Check 'a 500 x 300 photo: 422' (Put 'small.jpg' 'image/jpeg' $admin).status 422
+Check 'a 400 x 200 photo: 422' (Put 'small.jpg' 'image/jpeg' $admin).status 422
 Check 'nothing was stored for the rejected files' (MediaCount) $before
 Check 'the market still shows the previous photo' (Call 'GET' "/markets/$($market.slug)" $null $null).json.data.image.url $pg.url
 
