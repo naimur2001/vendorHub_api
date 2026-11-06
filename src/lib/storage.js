@@ -86,3 +86,13 @@ export function imageUrls(key) {
 
 /** The public "image" object for API answers, or null. */
 export const presentImage = (img) => (img ? { ...imageUrls(img.key), width: img.width, height: img.height } : null);
+
+
+
+/** The thumbnail of one of OUR media URLs; any other URL (an older external image) is returned unchanged. */
+export function thumbFor(url) {
+  const prefix = `${env.PUBLIC_API_URL}/media/`;
+  if (typeof url !== 'string' || !url.startsWith(prefix)) return url;
+  const name = url.slice(prefix.length);
+  return MEDIA_NAME.test(name) && !name.endsWith('-thumb.webp') ? url.replace(/\.webp$/, '-thumb.webp') : url;
+}

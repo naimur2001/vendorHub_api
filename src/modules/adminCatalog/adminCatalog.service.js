@@ -174,7 +174,7 @@ const productInclude = {
   category: { select: { id: true, name: true, slug: true } },
 };
 
-export async function listProducts({ q, categoryId, brandId, isActive, page, limit }) {
+export async function listProducts({ q, categoryId, brandId, isActive, source, locked, page, limit }) {
   const where = {
     ...(q && {
       OR: [
@@ -185,6 +185,8 @@ export async function listProducts({ q, categoryId, brandId, isActive, page, lim
     ...(categoryId && { categoryId }),
     ...(brandId && { brandId }),
     ...(isActive !== undefined && { isActive }),
+    ...(source && { source }),
+    ...(locked !== undefined && { lockedAt: locked ? { not: null } : null }),
   };
   const [total, rows] = await Promise.all([
     prisma.product.count({ where }),
@@ -195,6 +197,7 @@ export async function listProducts({ q, categoryId, brandId, isActive, page, lim
       take: limit,
       include: {
         ...productInclude,
+        createdByShop: { select: { id: true, name: true, slug: true } },
         _count: { select: { listings: { where: { isActive: true } } } },
       },
     }),
@@ -231,7 +234,10 @@ export async function updateProduct(admin, id, input) {
 
   // the slug stays the same when the title changes, so links keep working
   const updated = await prisma.$transaction(async (tx) => {
-    const p = await tx.product.update({ where: { id }, data: input, include: productInclude });
+    // an admin change locks the product for the shop that created it
+    const p = await tx.product.update({ where: { id }, data: { ...input, lockedAt: new Date() }, include: productInclude });
+
+
     // a deactivated product takes its listings with it, so carts and storefronts stay consistent
     if (input.isActive === false) {
       await tx.shopListing.updateMany({ where: { productId: id }, data: { isActive: false } });
@@ -298,4 +304,66 @@ export async function removeMarketImage(admin, id) {
     }),
   ]);
   await removeImage(market.image.key).catch(() => {});
+}
+
+
+// ---------- shop-made products: lock / unlock / merge (admin) ----------
+
+export async function setProductLock(admin, id, locked) {
+  const product = await prisma.product.findUnique({ where: { id }, select: { id: true, title: true } });
+  if (!product) throw new AppError(404, 'Product not found');
+  const updated = await prisma.product.update({
+    where: { id },
+    data: { lockedAt: locked ? new Date() : null },
+    include: productInclude,
+  });
+  await audit(admin.id, locked ? 'catalog.product_locked' : 'catalog.product_unlocked', 'Product', id, { title: product.title });
+  return updated;
+}
+
+// Moves every listing of a duplicate to the target product, in one transaction.
+// A shop that already lists the target keeps that listing; its moved one is deactivated instead
+// (one listing per shop and product). Listing ids never change, so carts and bargains stay valid;
+// orders keep their own snapshot. The duplicate is then deactivated, and both products are locked.
+export async function mergeProduct(admin, id, { intoProductId }) {
+  if (id === intoProductId) throw new AppError(409, 'A product cannot be merged into itself');
+  const [duplicate, target] = await Promise.all([
+    prisma.product.findUnique({ where: { id } }),
+    prisma.product.findUnique({ where: { id: intoProductId } }),
+  ]);
+  if (!duplicate) throw new AppError(404, 'Product not found');
+  if (!target) throw new AppError(404, 'Target product not found');
+  if (!target.isActive) throw new AppError(409, 'The target product is inactive');
+
+  const result = await prisma.$transaction(async (tx) => {
+    const listings = await tx.shopListing.findMany({ where: { productId: id } });
+    const targetShops = new Set(
+      (await tx.shopListing.findMany({ where: { productId: intoProductId }, select: { shopId: true } })).map((l) => l.shopId),
+    );
+    let moved = 0;
+    let deactivated = 0;
+    for (const l of listings) {
+      if (targetShops.has(l.shopId)) {
+        await tx.shopListing.update({ where: { id: l.id }, data: { isActive: false } });
+        deactivated += 1;
+      } else {
+        await tx.shopListing.update({ where: { id: l.id }, data: { productId: intoProductId } });
+        moved += 1;
+      }
+    }
+    const now = new Date();
+    await tx.product.update({ where: { id }, data: { isActive: false, lockedAt: now } });
+    await tx.product.update({ where: { id: intoProductId }, data: { lockedAt: now } });
+    await tx.auditLog.create({
+      data: {
+        actorId: admin.id,
+        action: 'catalog.product_merged',
+        entityType: 'Product',
+        entityId: id,
+        meta: { title: duplicate.title, intoProductId, intoTitle: target.title, moved, deactivated },
+      },
+    });
+    return { moved, deactivated };
+  });
+  return { productId: id, intoProductId, ...result };
 }

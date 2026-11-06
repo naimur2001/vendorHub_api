@@ -48,7 +48,7 @@ catch {
 }
 
 $a55 = 'galaxy-a55-5g-8-128gb'
-$cardKeys = 'availability,bargainAvailable,brand,category,createdAt,highestPrice,id,image,lowestPrice,msrp,shopCount,slug,title'
+$cardKeys = 'availability,bargainAvailable,brand,category,createdAt,highestPrice,id,image,lowestPrice,msrp,shopCount,slug,thumbnail,title'
 
 # ---- 1. the full list, the card fields, the default page size ----
 $all = Call '/products?limit=50'

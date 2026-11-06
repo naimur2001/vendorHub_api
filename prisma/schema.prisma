@@ -96,6 +96,11 @@ enum ReviewType {
   SHOP_TRUST
 }
 
+enum ProductSource {
+  ADMIN
+  SHOP
+}
+
 // ───────────── USERS & AUTH ─────────────
 
 model User {
@@ -196,6 +201,7 @@ model Shop {
   staff            ShopStaff[]
   verifications    ShopVerification[]
   listings         ShopListing[]
+  createdProducts  Product[]          @relation("ShopCreatedProducts")
   subOrders        SubOrder[]
   reviews          Review[]
   followers        ShopFollow[]
@@ -306,6 +312,11 @@ model Product {
   images      String[]
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
+  source          ProductSource @default(ADMIN)
+  createdByShopId String?
+  lockedAt        DateTime? // set when an admin edits or merges the product: the creating shop can no longer change it
+  createdByShop   Shop?         @relation("ShopCreatedProducts", fields: [createdByShopId], references: [id], onDelete: SetNull)
+  photos          Image[]
 
   brand    Brand?        @relation(fields: [brandId], references: [id])
   category Category      @relation(fields: [categoryId], references: [id])
@@ -314,6 +325,8 @@ model Product {
 
   @@index([categoryId])
   @@index([brandId])
+  @@index([source])
+  @@index([createdByShopId, createdAt])
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin) // fast ILIKE '%text%' search on titles (pg_trgm)
 }
 
@@ -631,4 +644,9 @@ model Image {
   ownerId   String?
   createdAt DateTime @default(now())
   market    Market?
+  productId String?
+  sortOrder Int      @default(0)
+  product   Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, sortOrder])
 }

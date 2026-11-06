@@ -57,6 +57,8 @@ tags:
     description: The trust gallery of the physical shop, with 360 panoramas
   - name: Try-on
     description: AI virtual try-on (5-frame roll, nothing stored)
+  - name: Shop products
+    description: New catalog products added by verified shops, their photos and edit rules
 components:
   securitySchemes:
     bearerAuth:

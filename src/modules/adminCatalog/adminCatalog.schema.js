@@ -56,6 +56,8 @@ export const productUpdateSchema = z
   .object({
     title: z.string().trim().min(3).max(200).optional(),
     categoryId: z.string().uuid().optional(),
+    // source: z.enum(['ADMIN', 'SHOP']).optional(),
+    // locked: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
     brandId: z.string().uuid().nullable().optional(),
     description: z.string().trim().max(5000).nullable().optional(),
     specs: z.record(z.string(), z.unknown()).optional(),
@@ -67,9 +69,14 @@ export const productUpdateSchema = z
 
 export const adminProductsQuery = z.object({
   q: z.string().trim().min(1).optional(),
+  source: z.enum(['ADMIN', 'SHOP']).optional(),
+  locked: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
   categoryId: z.string().uuid().optional(),
   brandId: z.string().uuid().optional(),
   isActive: bool.optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
+
+
+export const mergeProductSchema = z.object({ intoProductId: z.string().uuid() }).strict();

@@ -1,0 +1,648 @@
+paths:
+  /api/v1/shops/{shopId}/products/similar:
+    get:
+      tags: [Shop products]
+      operationId: shopSimilarProducts
+      summary: '"Did you mean ...?" - up to 5 active products with a similar title'
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ShopIdPath'
+        - name: title
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 200
+      responses:
+        '200':
+          description: Similar products (trigram similarity, best first).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SimilarProduct'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/shops/{slug}/products:
+    post:
+      tags: [Shop products]
+      operationId: createShopProduct
+      summary: Add a NEW catalog product together with this shop's listing (live at once)
+      description: >-
+        Here {slug} is the shop ID (the path is shared with the public storefront list).
+        The shop must be active and at least DOCUMENTS_VERIFIED. At most 20 new products per shop per
+        24 hours. Brand and category must already exist. Unknown fields are rejected.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: The shop id.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShopProductCreate'
+      responses:
+        '201':
+          description: The product and the listing.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [product, listing]
+                    properties:
+                      product:
+                        $ref: '#/components/schemas/ShopProduct'
+                      listing:
+                        $ref: '#/components/schemas/OwnerListing'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/shops/{shopId}/products/{productId}:
+    patch:
+      tags: [Shop products]
+      operationId: updateShopProduct
+      summary: The creating shop updates its product (not when locked or hidden by Vendors Hub)
+      description: >-
+        403 "Only Vendors Hub can change this product now" for admin products, other shops' products,
+        locked or hidden products. Title, category and brand change only while no other shop sells it.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ShopIdPath'
+        - $ref: '#/components/parameters/ProductIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShopProductUpdate'
+      responses:
+        '200':
+          description: The updated product.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ShopProduct'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/shops/{shopId}/products/{productId}/images:
+    put:
+      tags: [Shop products]
+      operationId: addShopProductPhoto
+      summary: Add one photo (same rules as edits; max 6; re-encoded WebP)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ShopIdPath'
+        - $ref: '#/components/parameters/ProductIdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/PhotoUpload'
+      responses:
+        '200':
+          $ref: '#/components/responses/ProductPhotosResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PhotoTooLarge'
+        '422':
+          $ref: '#/components/responses/PhotoTooSmall'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/shops/{shopId}/products/{productId}/images/{imageId}:
+    delete:
+      tags: [Shop products]
+      operationId: removeShopProductPhoto
+      summary: Remove one photo (and its files)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ShopIdPath'
+        - $ref: '#/components/parameters/ProductIdPath'
+        - $ref: '#/components/parameters/ImageIdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/ProductPhotosResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/products/{productId}/images:
+    put:
+      tags: [Admin]
+      operationId: adminAddProductPhoto
+      summary: Add one photo to any product (locks it for shops)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductIdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/PhotoUpload'
+      responses:
+        '200':
+          $ref: '#/components/responses/ProductPhotosResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PhotoTooLarge'
+        '422':
+          $ref: '#/components/responses/PhotoTooSmall'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/admin/products/{productId}/images/{imageId}:
+    delete:
+      tags: [Admin]
+      operationId: adminRemoveProductPhoto
+      summary: Remove one photo from any product (locks it for shops)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductIdPath'
+        - $ref: '#/components/parameters/ImageIdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/ProductPhotosResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/products/{productId}/lock:
+    post:
+      tags: [Admin]
+      operationId: adminLockProduct
+      summary: Lock a product (its creating shop can no longer change it)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductIdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/DataObjectResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/products/{productId}/unlock:
+    post:
+      tags: [Admin]
+      operationId: adminUnlockProduct
+      summary: Unlock a product
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductIdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/DataObjectResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/products/{productId}/merge:
+    post:
+      tags: [Admin]
+      operationId: adminMergeProduct
+      summary: Merge a duplicate into another product (listings move; duplicate switched off)
+      description: >-
+        One transaction. A shop that already lists the target keeps that listing and its moved one is
+        deactivated. Listing ids never change, so carts and bargains stay valid; orders keep their
+        snapshot. Both products are locked. 409 when merging into itself or into an inactive product.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [intoProductId]
+              properties:
+                intoProductId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: What happened.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [productId, intoProductId, moved, deactivated]
+                    properties:
+                      productId:
+                        type: string
+                        format: uuid
+                      intoProductId:
+                        type: string
+                        format: uuid
+                      moved:
+                        type: integer
+                      deactivated:
+                        type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/products:
+    get:
+      tags: [Admin]
+      operationId: adminListProducts
+      summary: All products (also inactive), with source, creating shop and lock state
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: categoryId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: brandId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: isActive
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - name: source
+          in: query
+          description: SHOP = products added by shops.
+          schema:
+            type: string
+            enum: [ADMIN, SHOP]
+        - name: locked
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of products (each with source, createdByShop, lockedAt, activeListings).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+          
+components:
+  parameters:
+    ShopIdPath:
+      name: shopId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ProductIdPath:
+      name: productId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ImageIdPath:
+      name: imageId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  requestBodies:
+    PhotoUpload:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            type: object
+            required: [image]
+            properties:
+              image:
+                type: string
+                format: binary
+                description: One JPG, PNG or WebP photo, max 5 MB, at least 480 x 270.
+  responses:
+    ProductPhotosResult:
+      description: The product's photos after the change.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                type: object
+                required: [productId, images, photos]
+                properties:
+                  productId:
+                    type: string
+                    format: uuid
+                  images:
+                    type: array
+                    items:
+                      type: string
+                  photos:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, url, thumbUrl, width, height]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        url:
+                          type: string
+                        thumbUrl:
+                          type: string
+                        width:
+                          type: integer
+                        height:
+                          type: integer
+    PhotoTooLarge:
+      description: The photo is larger than 5 MB.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PhotoTooSmall:
+      description: The photo is too small (at least 480 x 270 pixels).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    DataObjectResult:
+      description: The product.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/DataObject'
+  schemas:
+    SimilarProduct:
+      type: object
+      required: [id, slug, title, brand, category, image, alreadyListedByYou]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        title:
+          type: string
+        brand:
+          allOf:
+            - $ref: '#/components/schemas/IdName'
+          nullable: true
+        category:
+          $ref: '#/components/schemas/IdNameSlug'
+        image:
+          type: string
+          nullable: true
+        alreadyListedByYou:
+          type: boolean
+    ShopProductCreate:
+      type: object
+      additionalProperties: false
+      required: [title, categoryId, listing]
+      properties:
+        title:
+          type: string
+          minLength: 3
+          maxLength: 200
+        categoryId:
+          type: string
+          format: uuid
+        brandId:
+          type: string
+          format: uuid
+          nullable: true
+        description:
+          type: string
+          nullable: true
+          maxLength: 5000
+        specs:
+          type: object
+          maxProperties: 20
+          additionalProperties:
+            type: string
+            minLength: 1
+            maxLength: 100
+          description: Keys 1-40 characters; string values only.
+        msrp:
+          type: integer
+          minimum: 0
+          nullable: true
+        listing:
+          type: object
+          additionalProperties: false
+          required: [price]
+          properties:
+            price:
+              type: integer
+              minimum: 1
+            stockQty:
+              type: integer
+              minimum: 0
+              maximum: 100000
+              nullable: true
+            availability:
+              $ref: '#/components/schemas/Availability'
+            bargainEnabled:
+              type: boolean
+              default: false
+            minOfferPercent:
+              type: integer
+              minimum: 50
+              maximum: 100
+              default: 92
+    ShopProductUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 3
+          maxLength: 200
+        categoryId:
+          type: string
+          format: uuid
+        brandId:
+          type: string
+          format: uuid
+          nullable: true
+        description:
+          type: string
+          nullable: true
+          maxLength: 5000
+        specs:
+          type: object
+          maxProperties: 20
+          additionalProperties:
+            type: string
+            minLength: 1
+            maxLength: 100
+        msrp:
+          type: integer
+          minimum: 0
+          nullable: true
+    ShopProduct:
+      type: object
+      required: [id, slug, title, description, specs, msrp, images, brand, category, source, createdByShopId, lockedAt, isActive, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        specs:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: string
+        msrp:
+          type: integer
+          nullable: true
+        images:
+          type: array
+          items:
+            type: string
+        brand:
+          allOf:
+            - $ref: '#/components/schemas/IdName'
+          nullable: true
+        category:
+          $ref: '#/components/schemas/IdNameSlug'
+        source:
+          type: string
+          enum: [ADMIN, SHOP]
+        createdByShopId:
+          type: string
+          format: uuid
+          nullable: true
+        lockedAt:
+          type: string
+          format: date-time
+          nullable: true
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    OwnerListing:
+      type: object
+      required: [id, price, stockQty, availability, bargainEnabled, minOfferPercent, isActive]
+      properties:
+        id:
+          type: string
+          format: uuid
+        price:
+          type: integer
+        stockQty:
+          type: integer
+          nullable: true
+        availability:
+          $ref: '#/components/schemas/Availability'
+        bargainEnabled:
+          type: boolean
+        minOfferPercent:
+          type: integer
+        isActive:
+          type: boolean

@@ -21,7 +21,9 @@ export function loadOpenApi() {
     for (const [route, operations] of Object.entries(part.paths ?? {})) {
       spec.paths[route] = { ...(spec.paths[route] ?? {}), ...operations }; // the same path in two files: methods merge
     }
-    Object.assign(spec.components.schemas, part.components?.schemas ?? {});
+    for (const section of ['schemas', 'parameters', 'requestBodies', 'responses']) {
+      spec.components[section] = { ...(spec.components[section] ?? {}), ...(part.components?.[section] ?? {}) };
+    }
   }
   return spec;
 }

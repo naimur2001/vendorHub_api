@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
-
+import { thumbFor } from '../../lib/storage.js';
 const AVAILABILITY_RANK = { IN_STOCK: 4, AVAILABLE: 3, LIMITED: 2, OUT_OF_STOCK: 1 };
 
 // The "best" availability among a product's listings (used on product cards).
@@ -144,6 +144,7 @@ export async function listProducts(query) {
       brand: p.brand,
       category: p.category,
       image: p.images[0] ?? null,
+      thumbnail: p.images[0] ? thumbFor(p.images[0]) : null,
       msrp: p.msrp,
       lowestPrice: r.lowestPrice,
       highestPrice: r.highestPrice,
@@ -234,6 +235,7 @@ export async function getProduct(slug, listingId) {
       description: product.description,
       specs: product.specs,
       images: product.images,
+      thumbnails: product.images.map(thumbFor),
       msrp: product.msrp,
       brand: product.brand && { id: product.brand.id, name: product.brand.name },
       category: product.category,

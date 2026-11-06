@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { validate, validateQuery } from '../../middlewares/validate.js';
 import { authenticate, requireRole } from '../../middlewares/auth.js';
+import { uploadLimiter } from '../../middlewares/rateLimit.js';
+import { receivePhoto } from '../../middlewares/photoUpload.js';
 import {
   categorySchema,
   categoryUpdateSchema,
@@ -10,13 +12,9 @@ import {
   productSchema,
   productUpdateSchema,
   adminProductsQuery,
+  mergeProductSchema,
 } from './adminCatalog.schema.js';
 import * as c from './adminCatalog.controller.js';
-import multer from 'multer';
-import { uploadLimiter } from '../../middlewares/rateLimit.js';
-import { AppError } from '../../lib/errors.js';
-
-
 
 const router = Router();
 const adminOnly = [authenticate, requireRole('ADMIN')];
@@ -34,28 +32,20 @@ router.post('/admin/markets', ...adminOnly, validate(marketSchema), c.createMark
 router.patch('/admin/markets/:id', ...adminOnly, validate(marketUpdateSchema), c.updateMarket);
 router.delete('/admin/markets/:id', ...adminOnly, c.deleteMarket);
 
+// Market photo: one file in the field "image" (shared photo rules, see middlewares/photoUpload.js)
+router.put('/admin/markets/:id/image', ...adminOnly, uploadLimiter, receivePhoto, c.setMarketImage);
+router.delete('/admin/markets/:id/image', ...adminOnly, c.removeMarketImage);
+
 router.get('/admin/products', ...adminOnly, validateQuery(adminProductsQuery), c.listProducts);
 router.post('/admin/products', ...adminOnly, validate(productSchema), c.createProduct);
 router.patch('/admin/products/:id', ...adminOnly, validate(productUpdateSchema), c.updateProduct);
 router.delete('/admin/products/:id', ...adminOnly, c.deactivateProduct);
 
-
-// Market photo: exactly one file in the field "image", max 5 MB, almost nothing else.
-const marketPhoto = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 5, fieldSize: 1024, parts: 6 },
-});
-function receiveMarketPhoto(req, res, next) {
-  marketPhoto.single('image')(req, res, (err) => {
-    if (!err) return next();
-    if (err.code === 'LIMIT_FILE_SIZE') return next(new AppError(413, 'The photo is larger than 5 MB'));
-    if (err.name === 'MulterError') return next(new AppError(400, 'Send exactly one photo in the multipart field "image"'));
-    return next(err);
-  });
-}
-router.put('/admin/markets/:id/image', ...adminOnly, uploadLimiter, receiveMarketPhoto, c.setMarketImage);
-router.delete('/admin/markets/:id/image', ...adminOnly, c.removeMarketImage);
-
-
+// Product photos (admin): same rules as market photos; an admin change locks the product for shops
+router.put('/admin/products/:id/images', ...adminOnly, uploadLimiter, receivePhoto, c.addProductPhoto);
+router.delete('/admin/products/:id/images/:imageId', ...adminOnly, c.removeProductPhoto);
+router.post('/admin/products/:id/lock', ...adminOnly, c.lockProduct);
+router.post('/admin/products/:id/unlock', ...adminOnly, c.unlockProduct);
+router.post('/admin/products/:id/merge', ...adminOnly, validate(mergeProductSchema), c.mergeProduct);
 
 export default router;

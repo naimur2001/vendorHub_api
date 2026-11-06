@@ -43,3 +43,28 @@ export const removeMarketImage = async (req, res) => {
   await s.removeMarketImage(req.user, req.params.id);
   removed(res, 'Market photo');
 };
+
+
+
+import { AppError } from '../../lib/errors.js';
+import * as photos from '../shopProducts/productPhotos.service.js';
+
+// Admins may change the photos of any product; an admin change locks the product for shops.
+const adminRule = {
+  check: async (product) => {
+    if (!product) throw new AppError(404, 'Product not found');
+  },
+  lock: true,
+};
+
+export const addProductPhoto = async (req, res) =>
+  ok(res, await photos.addPhoto(req.user, req.params.id, req.file, adminRule));
+
+export const removeProductPhoto = async (req, res) =>
+  ok(res, await photos.removePhoto(req.user, req.params.id, req.params.imageId, adminRule));
+
+
+
+export const lockProduct = async (req, res) => ok(res, await s.setProductLock(req.user, req.params.id, true));
+export const unlockProduct = async (req, res) => ok(res, await s.setProductLock(req.user, req.params.id, false));
+export const mergeProduct = async (req, res) => ok(res, await s.mergeProduct(req.user, req.params.id, req.body));

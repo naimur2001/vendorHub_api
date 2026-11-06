@@ -32,6 +32,7 @@ import notificationRoutes from './modules/notifications/notifications.routes.js'
 import shopPhotoRoutes from './modules/shopPhotos/shopPhotos.routes.js';
 import tryOnRoutes from './modules/tryOn/tryOn.routes.js';
 import mediaRoutes from './modules/media/media.routes.js';
+import shopProductRoutes from './modules/shopProducts/shopProducts.routes.js';
 
 export const app = express();
 
@@ -115,7 +116,7 @@ app.use('/api/v1', returnRoutes);
 app.use('/api/v1', notificationRoutes);
 app.use('/api/v1', shopPhotoRoutes);
 app.use('/api/v1', tryOnRoutes);
-
+app.use('/api/v1', shopProductRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

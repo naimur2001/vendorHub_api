@@ -21,6 +21,7 @@ const WEBP_QUALITY = 82;
 export const IMAGE_PROFILES = Object.freeze({
   MARKET: Object.freeze({ width: 1600, thumbWidth: 600, minWidth: 480, minHeight: 270 }),
   GENERAL: Object.freeze({ width: 2048, thumbWidth: 600, minWidth: 1, minHeight: 1 }),
+  PRODUCT: Object.freeze({ width: 1600, thumbWidth: 600, minWidth: 480, minHeight: 270 }),
 });
 
 // Fixed messages: the uploaded file name or content is never echoed back.

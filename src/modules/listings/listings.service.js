@@ -2,7 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { assertShopAccess } from '../../lib/shopAccess.js';
 
-function deriveAvailability(stockQty) {
+export function deriveAvailability(stockQty) {
   if (stockQty === null || stockQty === undefined) return 'AVAILABLE';
   if (stockQty === 0) return 'OUT_OF_STOCK';
   if (stockQty <= 5) return 'LIMITED';
