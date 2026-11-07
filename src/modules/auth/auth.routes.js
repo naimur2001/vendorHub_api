@@ -9,6 +9,7 @@ import {
   changePasswordSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  verifyEmailSchema,
 } from './auth.schema.js';
 import * as controller from './auth.controller.js';
 
@@ -23,5 +24,6 @@ router.post('/change-password', authenticate, failedAttemptLimiter, validate(cha
 router.post('/forgot-password', authLimiter, validate(forgotPasswordSchema), controller.forgotPassword);
 router.post('/reset-password', authLimiter, validate(resetPasswordSchema), controller.resetPassword);
 router.get('/me', authenticate, controller.me);
-
+router.post('/verify-email', authLimiter, validate(verifyEmailSchema), controller.verifyEmail);
+router.post('/resend-verification', authenticate, controller.resendVerification);
 export default router;

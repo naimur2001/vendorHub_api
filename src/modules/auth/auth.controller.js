@@ -96,3 +96,13 @@ export const resetPassword = async (req, res) => {
   await authService.resetPassword(req.body);
   res.json({ success: true, data: { message: 'Password updated. Please log in with your new password.' } });
 };
+
+
+
+export const verifyEmail = async (req, res) => {
+  res.json({ success: true, data: await authService.verifyEmail(req.body) });
+};
+
+export const resendVerification = async (req, res) => {
+  res.json({ success: true, data: await authService.resendVerification(req.user.id) });
+};

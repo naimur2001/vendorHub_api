@@ -112,6 +112,7 @@ model User {
   avatarUrl    String?
   role         UserRole @default(CUSTOMER)
   isActive     Boolean  @default(true)
+  emailVerifiedAt DateTime? @default(now()) // new registrations set null until the link is opened
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -669,4 +670,18 @@ model IdempotencyKey {
 
   @@unique([userId, key])
   @@index([createdAt])
+}
+
+
+
+// Email verification links: only the SHA-256 of the token is stored; 24 hours; single use.
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }

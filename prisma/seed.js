@@ -10,6 +10,7 @@ const slugify = (s) =>
 async function clean() {
   await prisma.$transaction([
         prisma.idempotencyKey.deleteMany(),
+        prisma.emailVerificationToken.deleteMany(),
         prisma.image.deleteMany(),
     // shop photos first: they point at shops and at uploads
     prisma.shopPhoto.deleteMany(),

@@ -42,6 +42,7 @@ $suites = @(
     'test-notify-events.ps1',
     'test-try-on.ps1',
     'test-cookie-auth.ps1',
+    'test-email-verification.ps1'
     'test-openapi.ps1',
     'test-security.ps1',
     'test-idempotency.ps1'

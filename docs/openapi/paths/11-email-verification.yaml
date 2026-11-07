@@ -1,0 +1,107 @@
+paths:
+  /api/v1/auth/verify-email:
+    post:
+      tags: [Auth]
+      operationId: verifyEmail
+      summary: Confirm the email address with the token from the link (public)
+      description: >-
+        Valid, unused and not expired: the email is verified (audited as auth.email_verified).
+        Used, expired or unknown links: 400 "This link is invalid or has expired". Until the email is
+        verified, these actions answer 403 with error.details.code EMAIL_NOT_VERIFIED: POST /checkout,
+        POST /bargains, POST /shops, POST /shops/{shopId}/verifications, POST /shops/{shopId}/products,
+        POST /reviews (admins are never blocked; browsing, cart and account pages stay open).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+      responses:
+        '200':
+          description: Verified.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [verified]
+                    properties:
+                      verified:
+                        type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/auth/resend-verification:
+    post:
+      tags: [Auth]
+      operationId: resendVerification
+      summary: Send a new verification link (3 verification emails per hour, the first one included)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sent, or the email is already verified.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [alreadyVerified]
+                    properties:
+                      alreadyVerified:
+                        type: boolean
+                      message:
+                        type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+components:
+  responses:
+    EmailNotVerified:
+      description: 'Please verify your email first (error.details.code = "EMAIL_NOT_VERIFIED").'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    User:
+      type: object
+      required: [id, name, email, phone, role, avatarUrl, emailVerified]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        role:
+          $ref: '#/components/schemas/Role'
+        avatarUrl:
+          type: string
+          nullable: true
+        emailVerified:
+          type: boolean
+          description: False until the link from the verification email was opened.

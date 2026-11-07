@@ -51,8 +51,13 @@ const schema = z
       .transform((v) => (v === undefined ? undefined : v === 'true')), // unset = on in production only
     COOKIE_DOMAIN: z.string().optional(), // unset = the API's own host (usually right)
     API_DOCS: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+        // DEVELOPMENT/TEST ONLY: new users with these email domains are verified at once (comma list).
+    AUTO_VERIFY_EMAIL_DOMAINS: z.string().optional(),
   })
   .superRefine((cfg, ctx) => {
+        if (cfg.NODE_ENV === 'production' && cfg.AUTO_VERIFY_EMAIL_DOMAINS) {
+      ctx.addIssue({ code: 'custom', path: ['AUTO_VERIFY_EMAIL_DOMAINS'], message: 'Not allowed in production' });
+    }
     // Real sending needs a login; fail at startup instead of at the first mail.
     if (cfg.MAIL_MODE === 'smtp') {
       if (!cfg.SMTP_USER) ctx.addIssue({ code: 'custom', path: ['SMTP_USER'], message: 'Required when MAIL_MODE=smtp' });

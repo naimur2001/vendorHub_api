@@ -13,6 +13,7 @@ import {
   auditQuery,
 } from './verification.schema.js';
 import * as c from './verification.controller.js';
+import { requireVerifiedEmail } from '../../middlewares/verifiedEmail.js';
 
 const router = Router();
 const owner = [authenticate, requireRole('SHOP_OWNER', 'ADMIN')];
@@ -20,7 +21,7 @@ const shopTeam = [authenticate, requireRole('SHOP_OWNER', 'SHOP_STAFF', 'ADMIN')
 const adminOnly = [authenticate, requireRole('ADMIN')];
 
 // shop owner side (authenticate is applied per route because this router is mounted at /api/v1)
-router.post('/shops/:shopId/verifications', ...owner, validate(submitVerificationSchema), c.submit);
+router.post('/shops/:shopId/verifications', ...owner, requireVerifiedEmail, validate(submitVerificationSchema), c.submit);
 router.get('/shops/:shopId/verifications', ...shopTeam, c.listForShop);
 router.post('/verifications/:id/resubmit', ...owner, validate(resubmitSchema), c.resubmit);
 

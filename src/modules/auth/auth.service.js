@@ -18,6 +18,7 @@ const publicUser = (u) => ({
   phone: u.phone,
   role: u.role,
   avatarUrl: u.avatarUrl,
+  emailVerified: Boolean(u.emailVerifiedAt),
 });
 
 async function issueTokens(user) {
@@ -40,7 +41,12 @@ export async function register({ name, email, phone, password, role }) {
   if (existing) throw new AppError(409, 'Email or phone is already registered');
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const user = await prisma.user.create({ data: { name, email, phone, passwordHash, role } });
+  // const user = await prisma.user.create({ data: { name, email, phone, passwordHash, role } });
+  const verified = isAutoVerified(email); // development/test domains only (never in production)
+  const user = await prisma.user.create({
+    data: { name, email, phone, passwordHash, role, emailVerifiedAt: verified ? new Date() : null },
+  });
+  if (!verified && user.email) await sendVerificationLink(user); // never throws: a mail problem must not stop registration
   return { user: publicUser(user), ...(await issueTokens(user)) };
 }
 
@@ -180,4 +186,93 @@ export async function resetPassword({ token, newPassword }) {
       data: { revokedAt: new Date() },
     });
   });
+}
+
+
+
+// ---------- email verification ----------
+const VERIFY_HOURS = 24;
+const RESEND_PER_HOUR = 3;
+const INVALID_LINK = 'This link is invalid or has expired';
+
+const autoDomains = (env.AUTO_VERIFY_EMAIL_DOMAINS ?? '')
+  .split(',')
+  .map((d) => d.trim().toLowerCase())
+  .filter(Boolean);
+function isAutoVerified(email) {
+  const domain = String(email ?? '').split('@')[1]?.toLowerCase();
+  return Boolean(domain) && autoDomains.includes(domain);
+}
+
+const escapeHtml = (s) =>
+  String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+// A new link: random 32 bytes, only the SHA-256 is stored; older unused links stop working.
+// Never throws: problems are logged, so registration and resend answer the same way.
+async function sendVerificationLink(user) {
+  try {
+    const token = crypto.randomBytes(32).toString('hex');
+    const now = new Date();
+    await prisma.$transaction([
+      prisma.emailVerificationToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: now } }),
+      prisma.emailVerificationToken.create({
+        data: { userId: user.id, tokenHash: hashToken(token), expiresAt: new Date(now.getTime() + VERIFY_HOURS * 3600 * 1000) },
+      }),
+    ]);
+    const link = `${env.APP_URL}/auth/verify-email?token=${token}`;
+    const text = [
+      `Hello ${user.name},`,
+      '',
+      'Please confirm your email address for Vendors Hub:',
+      link,
+      '',
+      `The link works for ${VERIFY_HOURS} hours. If you did not create an account, ignore this email.`,
+    ].join('\n');
+    const html =
+      `<p>Hello ${escapeHtml(user.name)},</p>` +
+      '<p>Please confirm your email address for Vendors Hub:</p>' +
+      `<p><a href="${link}">Confirm my email</a></p>` +
+      `<p>The link works for ${VERIFY_HOURS} hours. If you did not create an account, ignore this email.</p>`;
+    await sendMail({ to: user.email, subject: 'Confirm your email for Vendors Hub', text, html });
+  } catch (err) {
+    logger.error({ err: err.message, userId: user.id }, 'verification email could not be prepared or sent');
+  }
+}
+
+// Used or expired links always fail (400). A valid link for an already verified user answers 200.
+export async function verifyEmail({ token }) {
+  const row = await prisma.emailVerificationToken.findUnique({ where: { tokenHash: hashToken(token) } });
+  const now = new Date();
+  if (!row || row.usedAt || row.expiresAt <= now) throw new AppError(400, INVALID_LINK);
+  const user = await prisma.user.findUnique({ where: { id: row.userId } });
+  if (!user) throw new AppError(400, INVALID_LINK);
+
+  await prisma.$transaction(async (tx) => {
+    // conditional: a link works once, even when it is clicked twice at the same moment
+    const used = await tx.emailVerificationToken.updateMany({
+      where: { id: row.id, usedAt: null, expiresAt: { gt: now } },
+      data: { usedAt: now },
+    });
+    if (used.count === 0) throw new AppError(400, INVALID_LINK);
+    if (!user.emailVerifiedAt) {
+      await tx.user.update({ where: { id: user.id }, data: { emailVerifiedAt: now } });
+      await tx.auditLog.create({
+        data: { actorId: user.id, action: 'auth.email_verified', entityType: 'User', entityId: user.id, meta: {} },
+      });
+    }
+  });
+  return { verified: true };
+}
+
+// At most RESEND_PER_HOUR verification emails per user per hour (the registration email counts too).
+export async function resendVerification(userId) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new AppError(404, 'User not found');
+  if (user.emailVerifiedAt) return { alreadyVerified: true };
+  const recent = await prisma.emailVerificationToken.count({
+    where: { userId, createdAt: { gte: new Date(Date.now() - 3600 * 1000) } },
+  });
+  if (recent >= RESEND_PER_HOUR) throw new AppError(429, 'Too many verification emails. Please try again later.');
+  await sendVerificationLink(user);
+  return { alreadyVerified: false, message: 'A new verification link has been sent.' };
 }
