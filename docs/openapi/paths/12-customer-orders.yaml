@@ -1,0 +1,153 @@
+paths:
+  /api/v1/orders:
+    get:
+      tags: [Orders]
+      operationId: listMyOrders
+      summary: My orders, newest first
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - $ref: '#/components/parameters/Page'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: One page of my orders.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CustomerOrder'
+                  meta:
+                    type: object
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/orders/{orderId}:
+    get:
+      tags: [Orders]
+      operationId: getMyOrder
+      summary: One of my orders, with the shop's address and the items
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/CustomerOrder'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  schemas:
+    CustomerOrderItem:
+      type: object
+      required: [id, productId, productSlug, title, unitPrice, quantity, lineTotal, bargained]
+      properties:
+        id:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          format: uuid
+          description: Link to the product page with productSlug.
+        productSlug:
+          type: string
+        title:
+          type: string
+          description: The title at the moment of ordering (snapshot).
+        unitPrice:
+          type: integer
+        quantity:
+          type: integer
+        lineTotal:
+          type: integer
+        bargained:
+          type: boolean
+    CustomerOrder:
+      type: object
+      additionalProperties: true
+      required: [id, orderNumber, checkoutId, status, paymentMethod, paymentStatus, deliveryMethod, deliveryFee, total, shop, items]
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderNumber:
+          type: string
+        checkoutId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        paymentMethod:
+          type: string
+          enum: [ONLINE, PAY_AT_STORE, CASH_ON_DELIVERY]
+        paymentStatus:
+          $ref: '#/components/schemas/PaymentStatus'
+        deliveryMethod:
+          type: string
+          enum: [STORE_PICKUP, VENDOR_DELIVERY]
+        deliveryAddress:
+          type: string
+          nullable: true
+        deliveryFee:
+          type: integer
+        subtotal:
+          type: integer
+        total:
+          type: integer
+        shop:
+          type: object
+          additionalProperties: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CustomerOrderItem'
+    CheckoutResult:
+      type: object
+      required: [checkoutId, totalAmount, orders]
+      properties:
+        checkoutId:
+          type: string
+          format: uuid
+        totalAmount:
+          type: integer
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/CustomerOrder'

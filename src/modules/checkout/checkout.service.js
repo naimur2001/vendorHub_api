@@ -25,7 +25,7 @@ const orderInclude = {
       verificationLevel: true,
     },
   },
-  items: true,
+  items: { include: { listing: { select: { product: { select: { id: true, slug: true } } } } } },
 };
 
 const formatOrder = (o) => ({
@@ -44,6 +44,8 @@ const formatOrder = (o) => ({
   shop: o.shop,
   items: o.items.map((i) => ({
     id: i.id,
+    productId: i.listing.product.id,
+    productSlug: i.listing.product.slug,
     title: i.title,
     unitPrice: i.unitPrice,
     quantity: i.quantity,

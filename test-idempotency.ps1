@@ -57,6 +57,10 @@ Check 'it is marked as a replay' $b.replayed 'true'
 Check 'the repeat returns the same checkout' $b.json.data.checkoutId $a.json.data.checkoutId
 Check 'the whole answer is identical' (($b.json | ConvertTo-Json -Depth 10 -Compress) -eq ($a.json | ConvertTo-Json -Depth 10 -Compress)) $true
 Check 'only one order exists' (OrderCount $u1) 1
+$item = $a.json.data.orders[0].items[0]
+Check 'an order item has the productSlug' $item.productSlug 'galaxy-a55-5g-8-128gb'
+Check 'an order item has the productId' $item.productId (Call 'GET' '/products/galaxy-a55-5g-8-128gb' $null $null $null).json.data.product.id
+Check 'GET /orders items have the productSlug too' (Call 'GET' '/orders?limit=1' $u1 $null $null).json.data[0].items[0].productSlug 'galaxy-a55-5g-8-128gb'
 
 # ---- 3. same key, different data ----
 Check 'same key with other data: 422' (Call 'POST' '/checkout' $u1 $other $k).status 422
