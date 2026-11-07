@@ -9,6 +9,7 @@ const slugify = (s) =>
 // Children first, parents last (foreign keys point child -> parent)
 async function clean() {
   await prisma.$transaction([
+        prisma.idempotencyKey.deleteMany(),
         prisma.image.deleteMany(),
     // shop photos first: they point at shops and at uploads
     prisma.shopPhoto.deleteMany(),

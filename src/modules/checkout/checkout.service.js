@@ -52,7 +52,8 @@ const formatOrder = (o) => ({
   })),
 });
 
-async function placeOrdersInTransaction(userId, { shops: choices }) {
+async function placeOrdersInTransaction(userId, { shops: choices }, inTransaction) {
+  
   const choiceIds = choices.map((c) => c.shopId);
   if (new Set(choiceIds).size !== choiceIds.length) {
     throw new AppError(400, 'Each shop can appear only once');
@@ -235,8 +236,11 @@ async function placeOrdersInTransaction(userId, { shops: choices }) {
          // 6. Empty the cart
       await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
 
-      return { checkoutId: session.id, totalAmount, orders: orders.map(formatOrder) };
-    },
+      const result = { checkoutId: session.id, totalAmount, orders: orders.map(formatOrder) };
+      // an extra step INSIDE this transaction (the idempotent checkout stores its answer here)
+      if (inTransaction) await inTransaction(tx, result);
+      return result;
+        },
     { maxWait: 5000, timeout: 20000 },
   );
 }
@@ -315,4 +319,60 @@ export async function placeOrders(userId, input) {
   const result = await placeOrdersInTransaction(userId, input);
   await notifyNewOrders(userId, result.checkoutId); // never throws
   return result;
+}
+
+
+
+// ---------- idempotent checkout (header Idempotency-Key) ----------
+// The IN_PROGRESS entry is inserted FIRST: the unique index on [userId, key] lets only one of two
+// parallel requests through. The orders and the stored answer are written in ONE transaction.
+// On any error the entry is removed, so the customer can fix the problem and retry with the same key.
+const KEY_TTL_MS = 24 * 60 * 60 * 1000;
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// The same data always gives the same hash, whatever the order of the object keys.
+const stable = (v) => {
+  if (Array.isArray(v)) return `[${v.map(stable).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable(v[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v);
+};
+const hashBody = (body) => crypto.createHash('sha256').update(stable(body ?? {})).digest('hex');
+
+export async function placeOrdersIdempotent(userId, input, key) {
+  if (!UUID_V4.test(key)) throw new AppError(400, 'Idempotency-Key must be a UUID v4');
+  const requestHash = hashBody(input);
+
+  // entries older than 24 hours expire
+  await prisma.idempotencyKey.deleteMany({ where: { userId, createdAt: { lt: new Date(Date.now() - KEY_TTL_MS) } } });
+
+  let entry;
+  try {
+    entry = await prisma.idempotencyKey.create({ data: { userId, key, requestHash, status: 'IN_PROGRESS' } });
+  } catch (err) {
+    if (err.code !== 'P2002') throw err; // P2002 = this user already used this key
+    const existing = await prisma.idempotencyKey.findUnique({ where: { userId_key: { userId, key } } });
+    if (!existing || existing.status === 'IN_PROGRESS') {
+      if (existing && existing.requestHash !== requestHash) throw new AppError(422, 'Idempotency key reused with different data');
+      throw new AppError(409, 'This order is already being placed');
+    }
+    if (existing.requestHash !== requestHash) throw new AppError(422, 'Idempotency key reused with different data');
+    return { replayed: true, status: existing.responseStatus, raw: existing.responseBody };
+  }
+
+  try {
+    const result = await placeOrdersInTransaction(userId, input, (tx, data) =>
+      tx.idempotencyKey.update({
+        where: { id: entry.id },
+          // the exact JSON text of the answer, so a replay is byte-for-byte identical
+        data: { status: 'DONE', responseStatus: 201, responseBody: JSON.stringify({ success: true, data }) },
+      }),
+    );
+    await notifyNewOrders(userId, result.checkoutId); // never throws
+    return { replayed: false, status: 201, body: { success: true, data: result } };
+  } catch (err) {
+    await prisma.idempotencyKey.delete({ where: { id: entry.id } }).catch(() => {});
+    throw err;
+  }
 }

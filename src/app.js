@@ -54,7 +54,14 @@ const allowedOrigins = env.CORS_ORIGINS.split(',')
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } })); // API data and images must be readable by the frontend (another origin)
 // credentials: true lets the website send and receive the session cookie.
 // With an empty list any origin is allowed (development); in production list the frontend's address.
-app.use(cors({ origin: allowedOrigins.length > 0 ? allowedOrigins : true, credentials: true }));
+app.use(
+  cors({
+    origin: allowedOrigins.length > 0 ? allowedOrigins : true,
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Auth-Mode', 'Idempotency-Key'],
+    exposedHeaders: ['Idempotent-Replayed'], // lets the website see that an answer was a replay
+  }),
+);
 app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
 app.use(

@@ -1,0 +1,88 @@
+paths:
+  /api/v1/checkout:
+    post:
+      tags: [Orders]
+      operationId: checkout
+      summary: Place the whole cart - one independent order per shop; safe to retry with Idempotency-Key
+      description: >-
+        Every shop in the cart needs one choice. Delivery needs deliveryAddress or addressId.
+        With the optional header Idempotency-Key (a UUID v4 made by the client for this checkout),
+        a repeated request with the same body returns the stored answer (header Idempotent-Replayed
+        true) and creates nothing. Keys are per user and kept 24 hours. A failed checkout frees its
+        key, so the same key can be used again after fixing the problem.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: UUID v4, one per checkout attempt; reuse it only to retry the same request.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [shops]
+              properties:
+                shops:
+                  type: array
+                  minItems: 1
+                  maxItems: 20
+                  items:
+                    type: object
+                    required: [shopId, deliveryMethod, paymentMethod]
+                    properties:
+                      shopId:
+                        type: string
+                        format: uuid
+                      deliveryMethod:
+                        type: string
+                        enum: [STORE_PICKUP, VENDOR_DELIVERY]
+                      paymentMethod:
+                        type: string
+                        enum: [ONLINE, PAY_AT_STORE, CASH_ON_DELIVERY]
+                      deliveryAddress:
+                        type: string
+                        minLength: 10
+                        maxLength: 300
+                      addressId:
+                        type: string
+                        format: uuid
+      responses:
+        '201':
+          description: The checkout with its orders (new, or the stored answer of an earlier identical request).
+          headers:
+            Idempotent-Replayed:
+              description: '"true" when this is the stored answer of an earlier request.'
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/CheckoutResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Out of stock or changed prices, or "This order is already being placed" (same key still running).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Idempotency key reused with different data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+                

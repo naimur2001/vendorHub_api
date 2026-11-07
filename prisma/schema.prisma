@@ -650,3 +650,23 @@ model Image {
 
   @@index([productId, sortOrder])
 }
+
+enum IdempotencyStatus {
+  IN_PROGRESS
+  DONE
+}
+
+// One entry per user and Idempotency-Key (24 hours): a repeated checkout returns the stored answer.
+model IdempotencyKey {
+  id             String            @id @default(uuid())
+  userId         String
+  key            String
+  requestHash    String // SHA-256 of the request body (keys sorted)
+  status         IdempotencyStatus @default(IN_PROGRESS)
+  responseStatus Int?
+  responseBody   Json?
+  createdAt      DateTime          @default(now())
+
+  @@unique([userId, key])
+  @@index([createdAt])
+}
