@@ -42,8 +42,8 @@ export const updateShopSchema = z
   .object({
     name: z.string().trim().min(2).max(100).optional(),
     description: z.string().trim().max(1000).nullable().optional(),
-    logoUrl: z.string().url().nullable().optional(),
-    bannerUrl: z.string().url().nullable().optional(),
+    // logoUrl: z.string().url().nullable().optional(),
+    // bannerUrl: z.string().url().nullable().optional(),
     marketId: z.string().uuid().nullable().optional(),
     levelFloor: z.string().trim().max(30).nullable().optional(),
     shopNumber: z.string().trim().max(30).nullable().optional(),

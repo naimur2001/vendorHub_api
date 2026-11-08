@@ -52,6 +52,7 @@ const files = {
     .toBuffer(),
   'polyglot.jpg': Buffer.concat([jpg, Buffer.from('<script>alert(1)</script>')]),
   'small.jpg': await solid(400, 200).jpeg().toBuffer(),
+  'tiny.jpg': await solid(150, 150).jpeg().toBuffer(), // below the 200 x 200 logo minimum
   'huge.jpg': Buffer.concat([jpg, Buffer.alloc(6 * 1024 * 1024)]),
   'bomb.png': claimedHugePng(30000, 30000),
   'plain.svg': Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="900" height="500"><rect width="900" height="500"/></svg>'),

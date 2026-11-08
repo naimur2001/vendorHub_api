@@ -22,6 +22,10 @@ export const IMAGE_PROFILES = Object.freeze({
   MARKET: Object.freeze({ width: 1600, thumbWidth: 600, minWidth: 480, minHeight: 270 }),
   GENERAL: Object.freeze({ width: 2048, thumbWidth: 600, minWidth: 1, minHeight: 1 }),
   PRODUCT: Object.freeze({ width: 1600, thumbWidth: 600, minWidth: 480, minHeight: 270 }),
+  // logo: square, center-cropped to exactly 512 x 512 (+128 thumbnail)
+  LOGO: Object.freeze({ width: 512, height: 512, thumbWidth: 128, thumbHeight: 128, minWidth: 200, minHeight: 200, crop: true, enlarge: true }),
+  // banner: exactly 1600 wide (+800 thumbnail)
+  BANNER: Object.freeze({ width: 1600, thumbWidth: 800, minWidth: 1200, minHeight: 300, enlarge: true }),
 });
 
 // Fixed messages: the uploaded file name or content is never echoed back.
@@ -69,15 +73,24 @@ export async function processImage(buffer, profileName) {
   }
 
   // 3. decode and RE-ENCODE (auto-rotate from EXIF, never enlarge, no metadata in the output)
-  const render = (targetWidth) =>
+  const render = (targetWidth, targetHeight) =>
     decoder(buffer)
       .rotate()
-      .resize({ width: targetWidth, withoutEnlargement: true })
+      .resize({
+        width: targetWidth,
+        ...(targetHeight && { height: targetHeight }),
+        fit: profile.crop ? 'cover' : 'inside', // cover = center crop to the exact size
+        position: 'centre',
+        withoutEnlargement: !profile.enlarge,
+      })
       .webp({ quality: WEBP_QUALITY })
       .toBuffer({ resolveWithObject: true });
 
   try {
-    const [full, thumb] = await Promise.all([render(profile.width), render(profile.thumbWidth)]);
+      const [full, thumb] = await Promise.all([
+      render(profile.width, profile.height),
+      render(profile.thumbWidth, profile.thumbHeight),
+    ]);
     return { full: full.data, thumb: thumb.data, width: full.info.width, height: full.info.height };
   } catch {
     throw new AppError(400, UNREADABLE);

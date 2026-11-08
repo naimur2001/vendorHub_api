@@ -51,3 +51,21 @@ export const searchShops = async (req, res) => {
   const { items, pagination } = await shopService.searchShops(req.validated);
   res.json({ success: true, data: items, meta: { pagination } });
 };
+
+
+import * as images from './shopImages.service.js';
+
+export const setLogo = async (req, res) => {
+  res.json({ success: true, data: await images.setShopImage(req.user, req.params.shopId, 'logo', req.file) });
+};
+export const removeLogo = async (req, res) => {
+  await images.removeShopImage(req.user, req.params.shopId, 'logo');
+  res.json({ success: true, data: { message: 'Logo removed' } });
+};
+export const setBanner = async (req, res) => {
+  res.json({ success: true, data: await images.setShopImage(req.user, req.params.shopId, 'banner', req.file) });
+};
+export const removeBanner = async (req, res) => {
+  await images.removeShopImage(req.user, req.params.shopId, 'banner');
+  res.json({ success: true, data: { message: 'Banner removed' } });
+};

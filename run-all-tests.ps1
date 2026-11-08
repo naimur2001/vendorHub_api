@@ -45,7 +45,8 @@ $suites = @(
     'test-email-verification.ps1'
     'test-openapi.ps1',
     'test-security.ps1',
-    'test-idempotency.ps1'
+    'test-idempotency.ps1',
+    'test-shop-images.ps1'
 )
 $results = @()
 foreach ($s in $suites) {

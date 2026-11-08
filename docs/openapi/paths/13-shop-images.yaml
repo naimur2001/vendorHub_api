@@ -1,0 +1,212 @@
+paths:
+  /api/v1/shops/{shopId}/logo:
+    put:
+      tags: [Shops]
+      operationId: setShopLogo
+      summary: Set or replace the shop logo (square, center-cropped to 512 x 512, min 200 x 200)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ShopIdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/PhotoUpload'
+      responses:
+        '200':
+          $ref: '#/components/responses/ShopImageResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/PhotoTooLarge'
+        '422':
+          $ref: '#/components/responses/PhotoTooSmall'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    delete:
+      tags: [Shops]
+      operationId: removeShopLogo
+      summary: Remove the shop logo (and its files)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ShopIdPath'
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/shops/{shopId}/banner:
+    put:
+      tags: [Shops]
+      operationId: setShopBanner
+      summary: Set or replace the shop banner (stored 1600 wide, min 1200 x 300)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ShopIdPath'
+      requestBody:
+        $ref: '#/components/requestBodies/PhotoUpload'
+      responses:
+        '200':
+          $ref: '#/components/responses/ShopImageResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/PhotoTooLarge'
+        '422':
+          $ref: '#/components/responses/PhotoTooSmall'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    delete:
+      tags: [Shops]
+      operationId: removeShopBanner
+      summary: Remove the shop banner (and its files)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ShopIdPath'
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/shops/{shop}:
+    patch:
+      tags: [Shops]
+      operationId: updateShop
+      summary: Edit the shop profile (owner or admin); logo and banner have their own upload endpoints
+      description: Here {shop} is the shop ID. Unknown fields (also logoUrl and bannerUrl) are rejected with 400.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shop
+          in: path
+          required: true
+          description: The shop id.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+                description:
+                  type: string
+                  nullable: true
+                  maxLength: 1000
+                marketId:
+                  type: string
+                  format: uuid
+                  nullable: true
+                levelFloor:
+                  type: string
+                  nullable: true
+                shopNumber:
+                  type: string
+                  nullable: true
+                addressLine:
+                  type: string
+                  minLength: 5
+                latitude:
+                  type: number
+                  nullable: true
+                longitude:
+                  type: number
+                  nullable: true
+                supportsDelivery:
+                  type: boolean
+                supportsPickup:
+                  type: boolean
+                returnPolicy:
+                  type: string
+                  nullable: true
+                  maxLength: 2000
+                returnWindowDays:
+                  type: integer
+                  minimum: 0
+                  maximum: 60
+      responses:
+        '200':
+          description: The updated shop.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Shop'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  responses:
+    ShopImageResult:
+      description: The new logo or banner.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                type: object
+                required: [shopId, url, thumbUrl, width, height]
+                properties:
+                  shopId:
+                    type: string
+                    format: uuid
+                  url:
+                    type: string
+                    description: Also stored as the shop's logoUrl / bannerUrl (our own /media URL).
+                  thumbUrl:
+                    type: string
+                  width:
+                    type: integer
+                  height:
+                    type: integer
