@@ -1,0 +1,102 @@
+paths:
+  /api/v1/search/by-image:
+    post:
+      tags: [Catalog]
+      operationId: searchByImage
+      summary: Search by photo - similar products (free visual search), plus optional search words
+      description: >-
+        One JPG, PNG or WebP photo in the multipart field "photo" (max 5 MB; type read from the content).
+        The photo stays in memory, is re-encoded without metadata and is never stored or logged; the answer
+        has Cache-Control no-store. Visual search (CLIP on our own server) returns the most similar active
+        products by photo and by title. Search words (query, label, category) come from the AI only when
+        SEARCH_IMAGE_MODE is gemini (mock in tests, null when off). Login optional. Limits: 10 per hour per
+        IP for guests, 30 per day per logged-in user.
+      security:
+        - {}
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [photo]
+              properties:
+                photo:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Similar products (free visual search), plus optional search words.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [query, label, category, products]
+                    properties:
+                      query:
+                        type: string
+                        nullable: true
+                        maxLength: 100
+                        description: Search words from the AI; null when SEARCH_IMAGE_MODE is off or nothing was recognised.
+                      label:
+                        type: string
+                        nullable: true
+                        maxLength: 80
+                      category:
+                        type: object
+                        nullable: true
+                        required: [slug, name]
+                        properties:
+                          slug:
+                            type: string
+                          name:
+                            type: string
+                      products:
+                        type: array
+                        maxItems: 12
+                        description: Most similar first (best of photo similarity and title match).
+                        items:
+                          type: object
+                          required: [id, slug, title, image, thumbnail, lowestPrice, shopCount, match, score]
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            slug:
+                              type: string
+                            title:
+                              type: string
+                            image:
+                              type: string
+                              nullable: true
+                            thumbnail:
+                              type: string
+                              nullable: true
+                            lowestPrice:
+                              type: integer
+                            shopCount:
+                              type: integer
+                            match:
+                              type: string
+                              enum: [photo, title]
+                            score:
+                              type: number
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          $ref: '#/components/responses/PhotoTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          description: Visual search is not available (the model could not be loaded).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'

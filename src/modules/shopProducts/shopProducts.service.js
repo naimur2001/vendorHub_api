@@ -5,7 +5,7 @@ import { AppError } from '../../lib/errors.js';
 import { uniqueSlug } from '../../lib/slug.js';
 import { assertShopAccess } from '../../lib/shopAccess.js';
 import { deriveAvailability } from '../listings/listings.service.js';
-
+import { fingerprintProductTitles, inBackground } from '../../lib/fingerprints.js';
 const DAILY_LIMIT = 20;
 const LEVEL_RANK = { UNVERIFIED: 0, DOCUMENTS_VERIFIED: 1, BUSINESS_VERIFIED: 2, PHYSICAL_SHOP_VERIFIED: 3, TRUSTED_VENDOR: 4 };
 const MIN_LEVEL_TO_CREATE = 'DOCUMENTS_VERIFIED';
@@ -145,6 +145,7 @@ export async function createShopProduct(user, shopId, input) {
     });
     return { product, listing };
   });
+  inBackground(() => fingerprintProductTitles([product.id]));
   return { product: presentProduct(product), listing: presentListing(listing) };
 }
 
@@ -176,5 +177,6 @@ export async function updateShopProduct(user, shopId, productId, input) {
     });
     return p;
   });
+  if ('title' in input || 'brandId' in input) inBackground(() => fingerprintProductTitles([productId]));
   return presentProduct(updated);
 }

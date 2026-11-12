@@ -33,7 +33,7 @@ import shopPhotoRoutes from './modules/shopPhotos/shopPhotos.routes.js';
 import tryOnRoutes from './modules/tryOn/tryOn.routes.js';
 import mediaRoutes from './modules/media/media.routes.js';
 import shopProductRoutes from './modules/shopProducts/shopProducts.routes.js';
-
+import searchRoutes from './modules/search/search.routes.js';
 export const app = express();
 
 // Behind Nginx or a load balancer: trust its X-Forwarded-For so rate limiting sees real client IPs
@@ -124,6 +124,19 @@ app.use('/api/v1', notificationRoutes);
 app.use('/api/v1', shopPhotoRoutes);
 app.use('/api/v1', tryOnRoutes);
 app.use('/api/v1', shopProductRoutes);
+app.use('/api/v1', searchRoutes);
+
+
+
+
+
+
+
+
+
+
+
+
 
 app.use(notFound);
 app.use(errorHandler);

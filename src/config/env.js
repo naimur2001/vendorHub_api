@@ -43,6 +43,12 @@ const schema = z
     GEMINI_API_KEY: z.string().optional(),
     GEMINI_IMAGE_MODEL: z.string().default('gemini-2.5-flash-image'),
     TRYON_DAILY_LIMIT: z.coerce.number().int().positive().default(25), // pictures per customer per day (5 rolls of 5 frames)
+        // search by photo: "mock" for development and tests (no AI call), "gemini" for real recognition
+    SEARCH_IMAGE_MODE: z.enum(['off', 'mock', 'gemini']).default('mock'), // off = visual search only (free)
+    GEMINI_VISION_MODEL: z.string().default('gemini-2.5-flash'),
+        // visual search: where the free CLIP model files are kept after the first download
+    CLIP_CACHE_DIR: z.string().default('./models-cache'),
+    
     // session cookie for the website (refresh token in an httpOnly cookie)
     COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'), // "none" only if the frontend is on a different site
     COOKIE_SECURE: z

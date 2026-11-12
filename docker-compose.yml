@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16
+    image: pgvector/pgvector:0.8.0-pg16 # PostgreSQL 16 + the pgvector extension (visual search)
     container_name: vendors-hub-db
     restart: unless-stopped
     environment:

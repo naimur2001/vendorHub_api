@@ -3,11 +3,13 @@ import { AppError } from '../../lib/errors.js';
 import { uniqueSlug } from '../../lib/slug.js';
 import { processImage } from '../../lib/images.js';
 import { stageImage, removeImage, presentImage } from '../../lib/storage.js';
+import { fingerprintProductTitles, inBackground } from '../../lib/fingerprints.js';
 
 const audit = (actorId, action, entityType, entityId, meta) =>
   prisma.auditLog.create({ data: { actorId, action, entityType, entityId, meta } });
 
 // ---------- categories (two levels: a root and its children) ----------
+
 
 async function assertRootCategory(parentId) {
   const parent = await prisma.category.findUnique({ where: { id: parentId } });
@@ -224,6 +226,7 @@ export async function createProduct(admin, input) {
     include: productInclude,
   });
   await audit(admin.id, 'catalog.product_created', 'Product', product.id, { title: product.title });
+    inBackground(() => fingerprintProductTitles([product.id]));
   return product;
 }
 
@@ -245,6 +248,7 @@ export async function updateProduct(admin, id, input) {
     return p;
   });
   await audit(admin.id, 'catalog.product_updated', 'Product', id, input);
+    if ('title' in input || 'brandId' in input) inBackground(() => fingerprintProductTitles([id]));
   return updated;
 }
 

@@ -26,6 +26,8 @@ export const IMAGE_PROFILES = Object.freeze({
   LOGO: Object.freeze({ width: 512, height: 512, thumbWidth: 128, thumbHeight: 128, minWidth: 200, minHeight: 200, crop: true, enlarge: true }),
   // banner: exactly 1600 wide (+800 thumbnail)
   BANNER: Object.freeze({ width: 1600, thumbWidth: 800, minWidth: 1200, minHeight: 300, enlarge: true }),
+    // search by photo: never stored; re-encoded (no EXIF/GPS) and made small before it goes to the AI
+  SEARCH: Object.freeze({ width: 1024, thumbWidth: 64, minWidth: 1, minHeight: 1 }),
 });
 
 // Fixed messages: the uploaded file name or content is never echoed back.

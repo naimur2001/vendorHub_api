@@ -6,6 +6,9 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { processImage } from '../../lib/images.js';
 import { stageImage, removeImage, imageUrls } from '../../lib/storage.js';
+import { fingerprintImage, inBackground } from '../../lib/fingerprints.js';
+
+
 
 const MAX_PHOTOS = 6;
 
@@ -34,11 +37,14 @@ export async function addPhoto(actor, productId, file, { check, lock }) {
 
   const url = imageUrls(staged.key).url;
   const nextOrder = product.photos.length ? product.photos[product.photos.length - 1].sortOrder + 1 : 0;
+  
+  let imageId = null;
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.image.create({
+      const created = await tx.image.create({
         data: { key: staged.key, width: processed.width, height: processed.height, purpose: 'PRODUCT', ownerId: actor.id, productId, sortOrder: nextOrder },
       });
+      imageId = created.id;
       await tx.product.update({
         where: { id: productId },
         data: { images: { push: url }, ...(lock && { lockedAt: new Date() }) },
@@ -51,6 +57,9 @@ export async function addPhoto(actor, productId, file, { check, lock }) {
     await removeImage(staged.key).catch(() => {});
     throw err;
   }
+
+  
+  inBackground(() => fingerprintImage(imageId, processed.full));
   const after = await loadProduct(productId);
   return present(productId, after.photos);
 }

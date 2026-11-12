@@ -320,6 +320,7 @@ model Product {
   source          ProductSource @default(ADMIN)
   createdByShopId String?
   lockedAt        DateTime? // set when an admin edits or merges the product: the creating shop can no longer change it
+    titleEmbedding  Unsupported("vector(512)")? // CLIP text fingerprint of the title (visual search)
   createdByShop   Shop?         @relation("ShopCreatedProducts", fields: [createdByShopId], references: [id], onDelete: SetNull)
   photos          Image[]
 
@@ -651,6 +652,7 @@ model Image {
   market    Market?
   productId String?
   sortOrder Int      @default(0)
+    embedding  Unsupported("vector(512)")? // CLIP image fingerprint (product photos)
   product   Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
   shopLogo   Shop?    @relation("ShopLogo")
   shopBanner Shop?    @relation("ShopBanner")
