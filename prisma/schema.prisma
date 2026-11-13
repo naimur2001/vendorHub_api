@@ -113,6 +113,12 @@ model User {
   role         UserRole @default(CUSTOMER)
   isActive     Boolean  @default(true)
   emailVerifiedAt DateTime? @default(now()) // new registrations set null until the link is opened
+  
+  deletionRequestedAt    DateTime?
+  deletionScheduledFor   DateTime? // set = account is waiting to be deleted (grace period)
+  deletionReason         String?
+  deletionReminderSentAt DateTime?
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -185,6 +191,7 @@ model Shop {
   bannerUrl         String?
   logoImageId       String?           @unique
   bannerImageId     String?           @unique
+  hiddenForOwnerDeletion Boolean @default(false) // hidden because its owner asked to delete the account
   logoImage         Image?            @relation("ShopLogo", fields: [logoImageId], references: [id], onDelete: SetNull)
   bannerImage       Image?            @relation("ShopBanner", fields: [bannerImageId], references: [id], onDelete: SetNull)
   levelFloor        String? // "Level 3"

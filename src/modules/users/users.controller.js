@@ -1,4 +1,5 @@
 import * as s from './users.service.js';
+import * as deletion from './deletion.service.js';
 
 export const updateProfile = async (req, res) => {
   res.json({ success: true, data: await s.updateProfile(req.user.id, req.body) });
@@ -40,4 +41,14 @@ export const setStatus = async (req, res) => {
 
 export const setRole = async (req, res) => {
   res.json({ success: true, data: await s.setUserRole(req.user, req.params.id, req.body) });
+};
+
+
+
+export const requestDeletion = async (req, res) => {
+  res.json({ success: true, data: await deletion.requestDeletion(req.user.id, req.body) });
+};
+
+export const cancelDeletion = async (req, res) => {
+  res.json({ success: true, data: await deletion.cancelDeletion(req.user.id) });
 };

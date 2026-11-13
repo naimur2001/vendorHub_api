@@ -1,0 +1,125 @@
+paths:
+  /api/v1/users/me/deletion:
+    post:
+      tags: [Profile]
+      operationId: requestAccountDeletion
+      summary: Delete my account (disabled now, anonymised after the grace period)
+      description: >-
+        Needs the current password (400 if wrong). Admins get 403. 409 with error.details.blockers while
+        there are open orders or returns (as customer or in the user's shops). On success: logged out on all
+        devices, owned shops hidden, staff memberships removed, cart emptied, live bargains closed, an email
+        with the date. Until the date, every logged-in call except GET /auth/me and
+        DELETE /users/me/deletion answers 403 with error.details.code ACCOUNT_DELETION_PENDING and
+        error.details.deletionScheduledFor; login and refresh keep working so the user can cancel.
+        After the date the account is anonymised (orders kept without personal data).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [password]
+              properties:
+                password:
+                  type: string
+                reason:
+                  type: string
+                  maxLength: 300
+      responses:
+        '200':
+          description: Scheduled.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [deletionScheduledFor]
+                    properties:
+                      deletionScheduledFor:
+                        type: string
+                        format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Open orders or returns first (error.details.blockers lists them with code, count, message).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Profile]
+      operationId: cancelAccountDeletion
+      summary: Cancel the deletion (restore the account and the shops hidden by the request)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Restored.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [cancelled]
+                    properties:
+                      cancelled:
+                        type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+components:
+  responses:
+    AccountDeletionPending:
+      description: 'The account is scheduled for deletion (error.details.code = "ACCOUNT_DELETION_PENDING", error.details.deletionScheduledFor).'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    User:
+      type: object
+      required: [id, name, email, phone, role, avatarUrl, emailVerified, deletionScheduledFor]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        role:
+          $ref: '#/components/schemas/Role'
+        avatarUrl:
+          type: string
+          nullable: true
+        emailVerified:
+          type: boolean
+        deletionScheduledFor:
+          type: string
+          format: date-time
+          nullable: true
+          description: Set while the account waits for deletion (the user can cancel until then).

@@ -49,3 +49,11 @@ export const userRoleSchema = z.object({
   role: z.enum(['CUSTOMER', 'SHOP_OWNER', 'SHOP_STAFF', 'ADMIN']),
   reason: z.string().trim().min(5).max(500),
 });
+
+
+export const deletionRequestSchema = z
+  .object({
+    password: z.string().min(1).max(200),
+    reason: z.string().trim().max(300).optional(),
+  })
+  .strict();

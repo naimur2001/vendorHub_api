@@ -59,6 +59,7 @@ const schema = z
     API_DOCS: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
         // DEVELOPMENT/TEST ONLY: new users with these email domains are verified at once (comma list).
     AUTO_VERIFY_EMAIL_DOMAINS: z.string().optional(),
+    ACCOUNT_DELETION_GRACE_DAYS: z.coerce.number().int().min(7).max(90).default(30),
   })
   .superRefine((cfg, ctx) => {
         if (cfg.NODE_ENV === 'production' && cfg.AUTO_VERIFY_EMAIL_DOMAINS) {

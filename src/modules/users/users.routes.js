@@ -8,8 +8,12 @@ import {
   adminUsersQuery,
   userStatusSchema,
   userRoleSchema,
+  deletionRequestSchema,
 } from './users.schema.js';
 import * as c from './users.controller.js';
+import { failedAttemptLimiter } from '../../middlewares/rateLimit.js';
+
+
 
 const router = Router();
 const adminOnly = [authenticate, requireRole('ADMIN')];
@@ -21,10 +25,15 @@ router.get('/users/me/addresses', authenticate, c.listAddresses);
 router.post('/users/me/addresses', authenticate, validate(addressSchema), c.createAddress);
 router.patch('/users/me/addresses/:id', authenticate, validate(addressUpdateSchema), c.updateAddress);
 router.delete('/users/me/addresses/:id', authenticate, c.deleteAddress);
+router.post('/users/me/deletion', authenticate, failedAttemptLimiter, validate(deletionRequestSchema), c.requestDeletion);
+router.delete('/users/me/deletion', authenticate, c.cancelDeletion);
+
 
 router.get('/admin/users', ...adminOnly, validateQuery(adminUsersQuery), c.listUsers);
 router.get('/admin/users/:id', ...adminOnly, c.getUser);
 router.patch('/admin/users/:id/status', ...adminOnly, validate(userStatusSchema), c.setStatus);
 router.patch('/admin/users/:id/role', ...adminOnly, validate(userRoleSchema), c.setRole);
+
+
 
 export default router;

@@ -25,7 +25,7 @@ $suites = @(
     'test-users-staff.ps1', 'test-my-shops.ps1', 'test-shop-products.ps1', 'test-password-reset.ps1', 'test-uploads.ps1',
     'test-returns.ps1', 'test-disputes.ps1', 'test-notifications.ps1', 'test-shop-photos.ps1', 'test-notify-events.ps1',
     'test-try-on.ps1', 'test-cookie-auth.ps1', 'test-email-verification.ps1', 'test-idempotency.ps1', 'test-shop-images.ps1',
-    'test-image-search.ps1', 'test-market-image.ps1', 'test-openapi.ps1', 'test-security.ps1'
+    'test-image-search.ps1', 'test-market-image.ps1', 'test-openapi.ps1', 'test-security.ps1', 'test-account-deletion.ps1'
 )
 $results = @()
 foreach ($s in $suites) {

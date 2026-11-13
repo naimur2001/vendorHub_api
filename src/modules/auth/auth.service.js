@@ -19,6 +19,7 @@ const publicUser = (u) => ({
   role: u.role,
   avatarUrl: u.avatarUrl,
   emailVerified: Boolean(u.emailVerifiedAt),
+  deletionScheduledFor: u.deletionScheduledFor ? u.deletionScheduledFor.toISOString() : null,
 });
 
 async function issueTokens(user) {
