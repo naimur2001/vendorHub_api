@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { districtKey, DEFAULT_DISTRICT } from '../../lib/districts.js';
 
 const nonEmpty = (o) => Object.keys(o).length > 0;
 const nonEmptyMsg = { message: 'Provide at least one field to update' };
@@ -25,6 +26,7 @@ export const brandSchema = z.object({ name: z.string().trim().min(2).max(80) });
 export const marketSchema = z.object({
   name: z.string().trim().min(2).max(100),
   city: z.string().trim().min(2).max(60).default('Dhaka'),
+  district: districtKey.default(DEFAULT_DISTRICT),
   address: z.string().trim().max(200).optional(),
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
@@ -34,6 +36,7 @@ export const marketUpdateSchema = z
   .object({
     name: z.string().trim().min(2).max(100).optional(),
     city: z.string().trim().min(2).max(60).optional(),
+    district: districtKey.optional(),
     address: z.string().trim().max(200).nullable().optional(),
     latitude: z.number().min(-90).max(90).nullable().optional(),
     longitude: z.number().min(-180).max(180).nullable().optional(),

@@ -26,8 +26,13 @@ const round1 = (n) => (n === null || n === undefined ? null : Math.round(n * 10)
 
 // ---------- Markets ----------
 
-export async function listMarkets() {
+export async function listMarkets({ district, q } = {}) {
   const rows = await prisma.market.findMany({
+    where: {
+      ...(district && { district }),
+      // Prisma does not escape "%" and "_" in contains, so they are escaped here (normal characters)
+      ...(q && { name: { contains: escapeLike(q), mode: 'insensitive' } }),
+    },
     orderBy: { name: 'asc' },
     include: { image: true, _count: { select: { shops: { where: { isActive: true } } } } },
   });
@@ -36,6 +41,7 @@ export async function listMarkets() {
     name: m.name,
     slug: m.slug,
     city: m.city,
+    district: m.district,
     address: m.address,
     shopCount: m._count.shops,
     image: presentImage(m.image),

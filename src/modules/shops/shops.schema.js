@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SOCIAL_KEYS, checkSocialLink } from '../../lib/socialLinks.js';
+import { districtKey } from '../../lib/districts.js';
 
 const bool = z.enum(['true', 'false']).transform((v) => v === 'true');
 
@@ -7,6 +8,12 @@ const pagination = {
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(12),
 };
+
+// GET /markets: optional filters; the answer stays a plain array. An empty q means no filter.
+export const marketsQuery = z.object({
+  district: districtKey.optional(),
+  q: z.string().trim().max(100).optional(),
+});
 
 export const shopProductsQuery = z.object({
   q: z.string().trim().min(1).optional(),

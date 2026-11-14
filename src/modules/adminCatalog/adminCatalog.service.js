@@ -126,7 +126,7 @@ export async function createMarket(admin, input) {
   const market = await prisma.market.create({
     data: { ...input, slug: await uniqueSlug('market', input.name) },
   });
-  await audit(admin.id, 'catalog.market_created', 'Market', market.id, { name: market.name });
+  await audit(admin.id, 'catalog.market_created', 'Market', market.id, { name: market.name, district: market.district });
   return market;
 }
 

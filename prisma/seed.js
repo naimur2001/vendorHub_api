@@ -83,10 +83,19 @@ async function main() {
 
   // ---------- Markets ----------
   const jamuna = await prisma.market.create({
-    data: { name: 'Jamuna Future Park', slug: 'jamuna-future-park', city: 'Dhaka', address: 'Kuril, Progoti Sarani, Dhaka', latitude: 23.8133, longitude: 90.4246 },
+    data: { name: 'Jamuna Future Park', slug: 'jamuna-future-park', city: 'Dhaka', district: 'dhaka', address: 'Kuril, Progoti Sarani, Dhaka', latitude: 23.8133, longitude: 90.4246 },
   });
   const bashundhara = await prisma.market.create({
-    data: { name: 'Bashundhara City', slug: 'bashundhara-city', city: 'Dhaka', address: 'Panthapath, Dhaka', latitude: 23.7512, longitude: 90.3908 },
+    data: { name: 'Bashundhara City', slug: 'bashundhara-city', city: 'Dhaka', district: 'dhaka', address: 'Panthapath, Dhaka', latitude: 23.7512, longitude: 90.3908 },
+  });
+  // Markets in other districts (no shops yet), so the frontend can group and filter by district.
+  // Their names sort after "Bashundhara City", so the first market of GET /markets stays the same.
+  await prisma.market.createMany({
+    data: [
+      { name: 'Sanmar Ocean City', slug: 'sanmar-ocean-city', city: 'Chattogram', district: 'chattogram', address: 'CDA Avenue, East Nasirabad, Chattogram', latitude: 22.3596, longitude: 91.8217 },
+      { name: 'Blue Water Shopping City', slug: 'blue-water-shopping-city', city: 'Sylhet', district: 'sylhet', address: 'Zindabazar, Sylhet', latitude: 24.8967, longitude: 91.8687 },
+      { name: 'Theme Omor Plaza', slug: 'theme-omor-plaza', city: 'Rajshahi', district: 'rajshahi', address: 'Alupatti, Rajshahi', latitude: 24.3667, longitude: 88.6044 },
+    ],
   });
 
   // ---------- Shops ----------

@@ -1,0 +1,312 @@
+paths:
+  /api/v1/markets:
+    get:
+      tags: [Markets]
+      operationId: listMarkets
+      summary: Malls and markets, optionally filtered by district and name
+      description: >-
+        A plain array ordered by name (no pagination). Every market carries its district key (one of the
+        64 districts of Bangladesh); the API only sends the key, the frontend shows the English or Bangla
+        name. Both filters are optional and can be combined. Without them all markets are returned.
+      parameters:
+        - name: district
+          in: query
+          required: false
+          description: Only markets in this district. An unknown key (or an empty value) answers 400.
+          schema:
+            $ref: '#/components/schemas/District'
+          example: chattogram
+        - name: q
+          in: query
+          required: false
+          description: >-
+            The market name contains this text (case-insensitive, trimmed; "%" and "_" are normal
+            characters). An empty text means no filter. More than 100 characters answers 400.
+          schema:
+            type: string
+            maxLength: 100
+          example: city
+      responses:
+        '200':
+          description: The markets (an empty array when nothing matches).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Market'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/v1/admin/markets:
+    post:
+      tags: [Admin]
+      operationId: adminCreateMarket
+      summary: Create a mall or market
+      description: Audited as catalog.market_created (name and district).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+                city:
+                  type: string
+                  minLength: 2
+                  maxLength: 60
+                  default: Dhaka
+                district:
+                  allOf:
+                    - $ref: '#/components/schemas/District'
+                  default: dhaka
+                address:
+                  type: string
+                  maxLength: 200
+                latitude:
+                  type: number
+                  minimum: -90
+                  maximum: 90
+                longitude:
+                  type: number
+                  minimum: -180
+                  maximum: 180
+      responses:
+        '201':
+          description: The new market.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/AdminMarket'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/markets/{marketId}:
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateMarket
+      summary: Edit a market (the slug never changes)
+      description: Audited as catalog.market_updated with the fields that were sent.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: marketId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+                city:
+                  type: string
+                  minLength: 2
+                  maxLength: 60
+                district:
+                  $ref: '#/components/schemas/District'
+                address:
+                  type: string
+                  nullable: true
+                  maxLength: 200
+                latitude:
+                  type: number
+                  nullable: true
+                  minimum: -90
+                  maximum: 90
+                longitude:
+                  type: number
+                  nullable: true
+                  minimum: -180
+                  maximum: 180
+      responses:
+        '200':
+          description: The updated market.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/AdminMarket'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  schemas:
+    District:
+      type: string
+      description: >-
+        One of the 64 districts of Bangladesh as a fixed key (lowercase, URL-safe). The list lives in
+        src/lib/districts.js.
+      example: dhaka
+      enum:
+        - barguna
+        - barishal
+        - bhola
+        - jhalokathi
+        - patuakhali
+        - pirojpur
+        - bandarban
+        - brahmanbaria
+        - chandpur
+        - chattogram
+        - cumilla
+        - coxs-bazar
+        - feni
+        - khagrachhari
+        - lakshmipur
+        - noakhali
+        - rangamati
+        - dhaka
+        - faridpur
+        - gazipur
+        - gopalganj
+        - kishoreganj
+        - madaripur
+        - manikganj
+        - munshiganj
+        - narayanganj
+        - narsingdi
+        - rajbari
+        - shariatpur
+        - tangail
+        - bagerhat
+        - chuadanga
+        - jashore
+        - jhenaidah
+        - khulna
+        - kushtia
+        - magura
+        - meherpur
+        - narail
+        - satkhira
+        - jamalpur
+        - mymensingh
+        - netrokona
+        - sherpur
+        - bogura
+        - joypurhat
+        - naogaon
+        - natore
+        - chapainawabganj
+        - pabna
+        - rajshahi
+        - sirajganj
+        - dinajpur
+        - gaibandha
+        - kurigram
+        - lalmonirhat
+        - nilphamari
+        - panchagarh
+        - rangpur
+        - thakurgaon
+        - habiganj
+        - moulvibazar
+        - sunamganj
+        - sylhet
+    Market:
+      type: object
+      required: [id, name, slug, city, district, address, image]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        city:
+          type: string
+        district:
+          $ref: '#/components/schemas/District'
+        address:
+          type: string
+          nullable: true
+        latitude:
+          type: number
+          nullable: true
+          description: Detail answer only.
+        longitude:
+          type: number
+          nullable: true
+          description: Detail answer only.
+        shopCount:
+          type: integer
+          description: List answer only (active shops).
+        image:
+          allOf:
+            - $ref: '#/components/schemas/ImageObject'
+          nullable: true
+    AdminMarket:
+      type: object
+      description: The stored market, as answered by the admin create and edit calls.
+      required: [id, name, slug, city, district, address, latitude, longitude, imageId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        city:
+          type: string
+        district:
+          $ref: '#/components/schemas/District'
+        address:
+          type: string
+          nullable: true
+        latitude:
+          type: number
+          nullable: true
+        longitude:
+          type: number
+          nullable: true
+        imageId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Internal reference to the market photo (set with PUT /admin/markets/{marketId}/image).

@@ -172,12 +172,15 @@ model Market {
   name      String
   slug      String  @unique
   city      String
+  district  String // one key from src/lib/districts.js (the 64 districts), validated by the API
   address   String?
   latitude  Float?
   longitude Float?
   shops     Shop[]
   imageId   String? @unique
   image     Image?  @relation(fields: [imageId], references: [id], onDelete: SetNull)
+
+  @@index([district])
 }
 
 model Shop {

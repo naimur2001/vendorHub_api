@@ -1,7 +1,7 @@
 import * as shopService from './shops.service.js';
 
 export const markets = async (req, res) => {
-  res.json({ success: true, data: await shopService.listMarkets() });
+  res.json({ success: true, data: await shopService.listMarkets(req.validated) });
 };
 
 export const market = async (req, res) => {
