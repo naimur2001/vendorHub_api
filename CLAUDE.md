@@ -1,28 +1,32 @@
 # Vendors Hub API
+Multi-vendor marketplace of verified physical shops in Bangladesh (backend only). Windows + PowerShell + VS Code.
+Repo naimur2001/vendorHub_api, work branch `naimur`, releases on `main` (tags v1.x). Frontend is a separate repo.
 
-Backend for a multi-vendor marketplace: products sold by real, verified physical shops. One canonical Product, many ShopListings (one per shop, own price and stock). Bargaining, split checkout (one independent order per shop), shop verification with an admin portal, dashboards.
+## Stack
+Node 22 (ES modules, plain JS), Express 5, Prisma 6, PostgreSQL 16 + pgvector (Docker image `pgvector/pgvector:0.8.0-pg16`, container `vendors-hub-db`, port 5433), Zod 4, JWT (+ httpOnly cookie mode via `X-Auth-Mode: cookie`), multer 2, sharp 0.35.5, @huggingface/transformers (CLIP, runs locally, model in `models-cache/`).
 
-Stack: Node 22, Express 5, Prisma 6, PostgreSQL 16, Zod, JWT, Docker. Plain JavaScript, ES modules. I develop on Windows (PowerShell). Deployment: Docker + Nginx on an Oracle Cloud Ubuntu VM (see docs in Notion).
+## Layout
+- `src/modules/<name>/` -> `<name>.routes.js`, `.controller.js`, `.service.js`, `.schema.js` (Zod). Routers mounted at `/api/v1` in `src/app.js`.
+- `src/lib/`: `images.js` (ONLY way to accept images: type from magic bytes + decoder, pixel limit, re-encode WebP, profiles), `storage.js` (stage/commit/remove files, `/media` URLs, `thumbFor`), `clip.js` + `fingerprints.js` (visual search), `mailer.js` (log | smtp), `notify.js`, `errors.js` (AppError(status, message, details)).
+- `src/middlewares/`: `auth.js` (authenticate does one DB lookup: blocks ACCOUNT_DELETION_PENDING), `rateLimit.js`, `photoUpload.js` (receivePhoto / receiveFileField), `verifiedEmail.js`.
+- Files: `uploads/media` (public WebP, served only by `/media/:name`), `uploads/private` (verification documents, originals, served by `GET /files/:id`), `uploads/staging`. Never served statically.
+- Docs: `docs/openapi/base.yaml` + `docs/openapi/paths/NN-*.yaml`, merged in name order (a later file overrides a path method or schema). 146 operations. Swagger at `/api/docs`.
 
-## Run it
-- Database: `docker compose up -d` (container `vendors-hub-db`, host port 5433, because 5432 was taken).
-- Config: `.env` (never commit). DATABASE_URL uses port 5433. `src/config/env.js` validates every variable at startup.
-- Server: `npm run dev` (node --watch --env-file=.env src/server.js), http://localhost:4000
-- Migrations: `npx prisma migrate dev --name <name>` (development), `npx prisma migrate deploy` (servers). If `npx prisma` fails, run `npm install` and check `npx prisma -v`.
-- Demo data: `node --env-file=.env prisma/seed.js`. It DELETES EVERYTHING first. Never run it against real data. All demo users use password `Password123!`: admin@, owner1@ (TechZone), owner2@ (staff at TechZone), owner3@ (Gadget Galaxy), customer@ (all @vendorshub.test).
+## Rules (important)
+- Never edit an applied migration; always a new one (`npx prisma migrate dev --name ...`). Raw SQL needs `--create-only` then edit.
+- New table -> add `prisma.<model>.deleteMany()` near the top of `clean()` in `prisma/seed.js`.
+- Windows: STOP the dev server before `prisma migrate` / `prisma generate` (EPERM lock). Restart after `.env` or YAML changes.
+- SQL only parameterised (`Prisma.sql`, `$queryRaw` templates). Never string-concatenate user input.
+- Every image goes through `processImage` + `storage.js`; never store or serve original public image bytes.
+- Errors: fixed messages, never echo user input; other users' data -> 404; admin decisions -> audit log; no personal data in logs.
+- Never `npm audit fix --force` (it jumps to Prisma 7). Exact versions for new packages (`--save-exact`) + `npm audit`.
+- New endpoint checklist: Zod schema, service, controller, route, OpenAPI file with `required`/`nullable`, update the exact count in `test-openapi.ps1`, PowerShell test, run the full suite.
 
 ## Tests
-- PowerShell suites in the project root: test-cart, test-checkout, test-bargain, test-orders-reviews, test-verification, test-dashboards, test-catalog-admin, test-users-staff, test-security (.ps1). 419 checks in total, all passing.
-- The server must be running. Run one with: `powershell -ExecutionPolicy Bypass -File .\test-cart.ps1`
-- Run all (reseeds first): `powershell -ExecutionPolicy Bypass -File .\run-all-tests.ps1`. Keep rate limiting OFF (the development default).
-- After every change, run the affected suite, and run-all-tests before a commit. Add a suite for every new module. Print the server's error message on failures (see existing scripts for the Call/Check/Login/Need helpers).
-- Windows PowerShell 5.1 gotchas in scripts: `$pid` is a reserved variable; read error bodies from `$_.ErrorDetails.Message`; keep script files ASCII only.
+- PowerShell suites `test-*.ps1`, all run by `run-all-tests.ps1` (reseeds first; `test-security.ps1` must stay LAST). 30 suites, all must pass.
+- Test `.env`: `MAIL_MODE=log`, `TRYON_MODE=mock`, `SEARCH_IMAGE_MODE=mock`, `AUTO_VERIFY_EMAIL_DOMAINS=vendorshub.test`. Never run tests in gemini/smtp mode.
+- Scripts: ASCII only. PowerShell 5.1 quirks: wrap one-item results in `@()`; a WebRequestSession re-sends earlier headers; a hand-made `Cookie` header is dropped; curl joins repeated `--data-binary`.
+- Helpers: `node --env-file=.env prisma/seed.js`, `scripts/backfill-fingerprints.mjs`, `scripts/check-openapi.mjs`, `scripts/clean-orphan-files.mjs` (dry run by default).
 
-## Structure
-src/app.js (middleware order matters), src/server.js (sweeper, graceful shutdown), src/config/env.js, src/lib/ (prisma, jwt, errors, logger, shopAccess, availability, slug), src/middlewares/ (auth, validate, errorHandler, rateLimit), src/modules/<feature>/ with routes -> controller -> service -> schema. Modules: auth, catalog, shops, listings, cart, checkout, bargains, verification, fulfilment, reviews, dashboards, admin, adminCatalog, users, staff. 98 endpoints. The full endpoint list and code walkthrough are in Notion ("Vendors Hub API: Endpoint Reference", "Source Code") and in the Claude doc "Vendors Hub Backend: Code Walkthrough and Roadmap".
-
-## Conventions (follow them)
-- Responses: `{ success: true, data }`, lists add `meta.pagination`, errors `{ success: false, error: { message, details } }`. Services throw `AppError(status, message)`; only errorHandler builds error responses.
-- Controllers contain no logic; services hold rules and Prisma calls; Zod schemas validate input (`validate` for body, `validateQuery` stores the result in `req.validated` because Express 5 req.query is read-only).
-- Routers mounted at /api/v1 apply `authenticate` PER ROUTE, never `router.use(authenticate)` (it would turn unknown paths into 401).
-- Authorization: `requireRole` for kinds of users, `assertShopAccess`
+## Working style
+Small steps. Read the relevant files before changing them. Ask before installing packages, running migrations or deleting data. After a change: run the affected test, then the full suite. Conventional commits (`feat(...)`, `fix(...)`, `chore(...)`), branch `naimur`. Short answers.
