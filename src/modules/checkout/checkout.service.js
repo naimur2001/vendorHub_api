@@ -22,6 +22,7 @@ const orderInclude = {
       levelFloor: true,
       shopNumber: true,
       addressLine: true,
+      phone: true, // the shop's public phone, so the customer can call about the order
       verificationLevel: true,
     },
   },

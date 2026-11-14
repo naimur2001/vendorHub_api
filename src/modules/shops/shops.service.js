@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { presentImage } from '../../lib/storage.js';
+import { mergeSocialLinks, presentSocialLinks, sameSocialLinks } from '../../lib/socialLinks.js';
 const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
 async function uniqueShopSlug(name) {
@@ -125,6 +126,10 @@ export async function getShop(slug, userId) {
       latitude: shop.latitude,
       longitude: shop.longitude,
     },
+    // the shop's own public contact (never the owner's personal phone or email)
+    phone: shop.phone,
+    whatsapp: shop.whatsapp,
+    socialLinks: presentSocialLinks(shop.socialLinks),
     market: shop.market,
     verification: { level: shop.verificationLevel, lastAuditedAt: shop.lastAuditedAt },
     supportsDelivery: shop.supportsDelivery,
@@ -280,14 +285,24 @@ export async function createShop(user, input) {
     if (!market) throw new AppError(404, 'Market not found');
   }
   const slug = await uniqueShopSlug(input.name);
+  const { socialLinks, ...data } = input;
+  const links = mergeSocialLinks(null, socialLinks ?? {}); // only the links that were really sent
   // starts as UNVERIFIED; the admin verification flow (Days 16-17) raises the level
-  return prisma.shop.create({ data: { ...input, slug, ownerId: user.id } });
+  const shop = await prisma.shop.create({
+    data: { ...data, ...(Object.keys(links).length > 0 && { socialLinks: links }), slug, ownerId: user.id },
+  });
+  return shopRecord(shop);
 }
 
+// The stored shop for its owner; the links always in the same shape as the public answers.
+const shopRecord = (shop) => ({ ...shop, socialLinks: presentSocialLinks(shop.socialLinks) });
 
 //update shop (shop owner or admin)
 export async function updateShop(user, shopId, input) {
-  const shop = await prisma.shop.findUnique({ where: { id: shopId }, select: { ownerId: true } });
+  const shop = await prisma.shop.findUnique({
+    where: { id: shopId },
+    select: { ownerId: true, phone: true, whatsapp: true, socialLinks: true },
+  });
   if (!shop) throw new AppError(404, 'Shop not found');
   if (user.role !== 'ADMIN' && shop.ownerId !== user.id) {
     throw new AppError(403, 'Only the shop owner can edit the shop profile');
@@ -296,7 +311,28 @@ export async function updateShop(user, shopId, input) {
     const market = await prisma.market.findUnique({ where: { id: input.marketId } });
     if (!market) throw new AppError(404, 'Market not found');
   }
-  return prisma.shop.update({ where: { id: shopId }, data: input });
+
+  const { socialLinks, ...data } = input;
+  // which contact fields really change: the audit log gets their names, never their values
+  const changed = [];
+  if (data.phone !== undefined && data.phone !== shop.phone) changed.push('phone');
+  if (data.whatsapp !== undefined && data.whatsapp !== shop.whatsapp) changed.push('whatsapp');
+  if (socialLinks !== undefined) {
+    const merged = mergeSocialLinks(shop.socialLinks, socialLinks);
+    data.socialLinks = Object.keys(merged).length > 0 ? merged : Prisma.DbNull;
+    if (!sameSocialLinks(shop.socialLinks, merged)) changed.push('socialLinks');
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.shop.update({ where: { id: shopId }, data });
+    if (changed.length > 0) {
+      await tx.auditLog.create({
+        data: { actorId: user.id, action: 'shop.contact_updated', entityType: 'Shop', entityId: shopId, meta: { fields: changed } },
+      });
+    }
+    return row;
+  });
+  return shopRecord(updated);
 }
 
 
@@ -307,8 +343,9 @@ export async function updateShop(user, shopId, input) {
 const escapeLike = (text) => text.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 
 // Public search by shop name. Filtering, ranking, counting and paging happen in the database;
-// every user value is a parameter. Only public card fields are returned: never the owner,
-// contact data, stock numbers, offer minimums or verification internals.
+// every user value is a parameter. Only public card fields are returned: the shop's own phone,
+// WhatsApp and links are public, but never the owner (or the owner's phone or email), stock
+// numbers, offer minimums or verification internals.
 export async function searchShops({ q, marketId, verifiedOnly, page, limit }) {
   const conds = [Prisma.sql`s."isActive" = true`];
   if (marketId) conds.push(Prisma.sql`s."marketId" = ${marketId}`);
@@ -353,6 +390,9 @@ export async function searchShops({ q, marketId, verifiedOnly, page, limit }) {
             logoUrl: true,
             levelFloor: true,
             shopNumber: true,
+            phone: true,
+            whatsapp: true,
+            socialLinks: true,
             verificationLevel: true,
             market: { select: { id: true, name: true, slug: true } },
             photos: { where: { isCover: true }, take: 1, select: { url: true, kind: true, verifiedAt: true } },
@@ -388,6 +428,9 @@ export async function searchShops({ q, marketId, verifiedOnly, page, limit }) {
       logoUrl: s.logoUrl,
       levelFloor: s.levelFloor,
       shopNumber: s.shopNumber,
+      phone: s.phone,
+      whatsapp: s.whatsapp,
+      socialLinks: presentSocialLinks(s.socialLinks),
       verificationLevel: s.verificationLevel,
       market: s.market,
       coverPhoto: cover ? { url: cover.url, kind: cover.kind, verified: cover.verifiedAt !== null } : null,

@@ -13,6 +13,7 @@ const LEVELS = [
 const OPEN_FOR_ADMIN = ['PENDING', 'AUTO_FLAGGED']; // waiting for an admin decision
 const OPEN = [...OPEN_FOR_ADMIN, 'CORRECTION_REQUESTED']; // not finished yet
 const FLAG_BELOW = 60; // pre-check scores under this are auto-flagged
+const NO_PHONE = 'Add your shop phone first'; // a shop without a phone cannot ask for verification
 
 const REQUIRED_DOCS = {
   DOCUMENTS_VERIFIED: ['TRADE_LICENSE', 'NID'],
@@ -63,6 +64,7 @@ const verificationInclude = {
       name: true,
       slug: true,
       addressLine: true,
+      phone: true, // only checked on resubmit; the admin answers are built field by field
       levelFloor: true,
       shopNumber: true,
       latitude: true,
@@ -165,6 +167,8 @@ export async function submitVerification(user, shopId, { targetLevel, documents 
   if (user.role !== 'ADMIN' && shop.ownerId !== user.id) {
     throw new AppError(403, 'Only the shop owner can request verification');
   }
+  // customers and admins must be able to reach a verified shop
+  if (!shop.phone) throw new AppError(409, NO_PHONE);
 
   const expected = nextLevel(shop.verificationLevel);
   if (!expected) throw new AppError(409, 'This shop already has the highest verification level');
@@ -252,6 +256,7 @@ export async function resubmit(user, id, documents) {
   if (v.status !== 'CORRECTION_REQUESTED') {
     throw new AppError(409, 'This request is not waiting for corrected documents');
   }
+  if (!v.shop.phone) throw new AppError(409, NO_PHONE);
   assertNoDuplicateTypes(documents);
 
   const flagged = v.documents.filter((d) => d.needsReupload).map((d) => d.type);

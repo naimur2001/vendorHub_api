@@ -8,8 +8,9 @@ paths:
         Only active shops. With q, names that start with q come first, then names that only contain it;
         inside each group the highest verification level first, then name A-Z, then id (stable pages).
         Without q, the same order without the first rule. In q, % and _ are normal characters.
-        Only public card fields are returned (never the owner, contact data, stock numbers, offer
-        minimums or verification internals).
+        Only public card fields are returned: the shop's own phone, WhatsApp and links are included,
+        but never the owner (or the owner's phone or email), stock numbers, offer minimums or
+        verification internals.
       parameters:
         - name: q
           in: query
@@ -73,6 +74,9 @@ components:
         - logoUrl
         - levelFloor
         - shopNumber
+        - phone
+        - whatsapp
+        - socialLinks
         - verificationLevel
         - market
         - coverPhoto
@@ -100,6 +104,17 @@ components:
           type: string
           nullable: true
           example: Shop 42
+        phone:
+          type: string
+          nullable: true
+          example: '01712345678'
+          description: The shop's public phone. Null only for shops created before phones existed.
+        whatsapp:
+          type: string
+          nullable: true
+          example: '01712345678'
+        socialLinks:
+          $ref: '#/components/schemas/ShopSocialLinks'
         verificationLevel:
           $ref: '#/components/schemas/VerificationLevel'
         market:

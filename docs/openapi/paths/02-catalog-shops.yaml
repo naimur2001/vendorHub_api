@@ -243,10 +243,21 @@ paths:
           application/json:
             schema:
               type: object
-              required: [name, addressLine]
+              required: [name, addressLine, phone]
               properties:
                 name:
                   type: string
+                phone:
+                  type: string
+                  pattern: '^01\d{9}$'
+                  example: '01712345678'
+                  description: The shop's public phone (Bangladesh mobile). Required.
+                whatsapp:
+                  type: string
+                  pattern: '^01\d{9}$'
+                  example: '01712345678'
+                socialLinks:
+                  $ref: '#/components/schemas/ShopSocialLinksInput'
                 description:
                   type: string
                 marketId:
@@ -832,8 +843,74 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/ShopCard'
+    ShopSocialLinks:
+      type: object
+      description: The shop's public links. Always these five keys; null when a link is not set.
+      required: [facebook, instagram, tiktok, youtube, website]
+      properties:
+        facebook:
+          type: string
+          format: uri
+          nullable: true
+          example: https://www.facebook.com/techzone
+        instagram:
+          type: string
+          format: uri
+          nullable: true
+        tiktok:
+          type: string
+          format: uri
+          nullable: true
+        youtube:
+          type: string
+          format: uri
+          nullable: true
+        website:
+          type: string
+          format: uri
+          nullable: true
+          example: https://techzone.example.com/
+    ShopSocialLinksInput:
+      type: object
+      additionalProperties: false
+      description: >-
+        Every key is optional; an unknown key is rejected with 400. Each link: at most 200 characters,
+        https only, no user name or password, and the host must belong to the platform (or be a subdomain):
+        facebook = facebook.com or fb.com, instagram = instagram.com, tiktok = tiktok.com,
+        youtube = youtube.com or youtu.be. website = any public host (not localhost, .local, .internal,
+        a one-word host, or a private, loopback or link-local IP address). When editing a shop, a key that
+        is not sent keeps its link and null removes it.
+      properties:
+        facebook:
+          type: string
+          format: uri
+          maxLength: 200
+          nullable: true
+          example: https://www.facebook.com/techzone
+        instagram:
+          type: string
+          format: uri
+          maxLength: 200
+          nullable: true
+        tiktok:
+          type: string
+          format: uri
+          maxLength: 200
+          nullable: true
+        youtube:
+          type: string
+          format: uri
+          maxLength: 200
+          nullable: true
+        website:
+          type: string
+          format: uri
+          maxLength: 200
+          nullable: true
+          example: https://techzone.example.com/
     Storefront:
       type: object
+      required: [phone, whatsapp, socialLinks]
       properties:
         id:
           type: string
@@ -842,6 +919,17 @@ components:
           type: string
         slug:
           type: string
+        phone:
+          type: string
+          nullable: true
+          example: '01712345678'
+          description: The shop's public phone (never the owner's personal phone). Null only for shops created before phones existed.
+        whatsapp:
+          type: string
+          nullable: true
+          example: '01712345678'
+        socialLinks:
+          $ref: '#/components/schemas/ShopSocialLinks'
         description:
           type: string
           nullable: true
@@ -938,6 +1026,15 @@ components:
           type: string
         slug:
           type: string
+        phone:
+          type: string
+          nullable: true
+          example: '01712345678'
+        whatsapp:
+          type: string
+          nullable: true
+        socialLinks:
+          $ref: '#/components/schemas/ShopSocialLinks'
         verificationLevel:
           $ref: '#/components/schemas/VerificationLevel'
         isActive:

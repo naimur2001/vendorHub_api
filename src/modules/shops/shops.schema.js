@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SOCIAL_KEYS, checkSocialLink } from '../../lib/socialLinks.js';
 
 const bool = z.enum(['true', 'false']).transform((v) => v === 'true');
 
@@ -21,8 +22,35 @@ export const shopReviewsQuery = z.object({
   ...pagination,
 });
 
+// ---------- shop contact: phone, WhatsApp and public links ----------
+const bdMobile = z.string().trim().regex(/^01\d{9}$/, 'Use a Bangladesh mobile number like 01712345678');
+
+// One link: the rules live in src/lib/socialLinks.js; the stored value is the normalised https link.
+const link = (key) =>
+  z
+    .string()
+    .transform((value, ctx) => {
+      const result = checkSocialLink(key, value);
+      if (!result.ok) {
+        ctx.issues.push({ code: 'custom', message: result.message, input: value });
+        return z.NEVER;
+      }
+      return result.url;
+    })
+    .nullable()
+    .optional();
+
+// Strict: an unknown key is rejected (fixed message, the key is not repeated). null removes a link.
+const socialLinks = z.strictObject(
+  Object.fromEntries(SOCIAL_KEYS.map((key) => [key, link(key)])),
+  { error: 'socialLinks accepts only facebook, instagram, tiktok, youtube and website' },
+);
+
 export const createShopSchema = z.object({
   name: z.string().trim().min(2).max(100),
+  phone: bdMobile,
+  whatsapp: bdMobile.optional(),
+  socialLinks: socialLinks.optional(),
   description: z.string().trim().max(1000).optional(),
   marketId: z.string().uuid().optional(),
   levelFloor: z.string().trim().max(30).optional(),
@@ -41,6 +69,9 @@ export const createShopSchema = z.object({
 export const updateShopSchema = z
   .object({
     name: z.string().trim().min(2).max(100).optional(),
+    phone: bdMobile.optional(), // can be changed, never removed
+    whatsapp: bdMobile.nullable().optional(),
+    socialLinks: socialLinks.nullable().optional(), // null removes every link
     description: z.string().trim().max(1000).nullable().optional(),
     // logoUrl: z.string().url().nullable().optional(),
     // bannerUrl: z.string().url().nullable().optional(),

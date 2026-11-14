@@ -63,7 +63,7 @@ function NewShop($name) {
     $script:n++
     $reg = Call 'POST' '/auth/register' $null @{ name = "Search Owner $($script:n)"; email = "search$($script:n)x$stamp@vendorshub.test"; password = 'Password123!'; role = 'SHOP_OWNER' }
     Need ($reg.status -eq 201) 'registering a shop owner'
-    $s = Call 'POST' '/shops' $reg.json.data.accessToken @{ name = $name; addressLine = 'Level 1, Shop 9, Test Plaza, Dhaka' }
+    $s = Call 'POST' '/shops' $reg.json.data.accessToken @{ name = $name; addressLine = 'Level 1, Shop 9, Test Plaza, Dhaka'; phone = '01712345678' }
     Need ($s.status -eq 201) "creating the shop $name"
     return $s.json.data.id
 }
@@ -75,7 +75,7 @@ catch {
 }
 
 $admin = Login 'admin@vendorshub.test'
-$cardKeys = 'coverPhoto,id,levelFloor,logoUrl,market,name,productCount,ratingAverage,reviewCount,shopNumber,slug,verificationLevel'
+$cardKeys = 'coverPhoto,id,levelFloor,logoUrl,market,name,phone,productCount,ratingAverage,reviewCount,shopNumber,slug,socialLinks,verificationLevel,whatsapp'
 
 # ---- 1. the list without q ----
 $r = Call 'GET' '/shops' $null $null
@@ -83,7 +83,7 @@ Check 'the shop list is public' $r.status 200
 Check 'pagination is included' ([bool]$r.json.meta.pagination) $true
 Check 'the default page size is 10' $r.json.meta.pagination.limit 10
 $all = @($r.json.data)
-Check 'only the card fields are returned (no ownerId, phone, email)' ((@($all[0].PSObject.Properties.Name) | Sort-Object) -join ',') $cardKeys
+Check 'only the card fields are returned (shop contact yes; no ownerId, owner phone or email)' ((@($all[0].PSObject.Properties.Name) | Sort-Object) -join ',') $cardKeys
 $levels = @{ UNVERIFIED = 0; DOCUMENTS_VERIFIED = 1; BUSINESS_VERIFIED = 2; PHYSICAL_SHOP_VERIFIED = 3; TRUSTED_VENDOR = 4 }
 $ok = $true
 for ($i = 1; $i -lt $all.Count; $i++) { if ($levels[$all[$i].verificationLevel] -gt $levels[$all[$i - 1].verificationLevel]) { $ok = $false } }

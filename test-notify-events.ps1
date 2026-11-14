@@ -157,7 +157,7 @@ Check 'reading it again does not alert twice' (Unread $c5.token) $before
 
 # ---- 6. verification ----
 $o = NewUser 'SHOP_OWNER'
-$s = Call 'POST' '/shops' $o.token @{ name = "Notify Test Shop $stamp"; addressLine = 'Level 2, Shop 10, Bashundhara City, Dhaka' }
+$s = Call 'POST' '/shops' $o.token @{ name = "Notify Test Shop $stamp"; addressLine = 'Level 2, Shop 10, Bashundhara City, Dhaka'; phone = '01712345678' }
 Need ($s.status -eq 201) 'creating a shop'
 $shopId = $s.json.data.id
 $docs = @(

@@ -171,7 +171,7 @@ $stamp = Get-Date -Format 'yyyyMMddHHmmss'
 $reg = Call 'POST' '/auth/register' $null @{ name = 'Dash Owner'; email = "dtest$stamp@vendorshub.test"; password = 'Password123!'; role = 'SHOP_OWNER' }
 $own = $reg.json.data.accessToken
 Need $own 'the test shop owner'
-$sh = Call 'POST' '/shops' $own @{ name = "Dash Test $stamp"; addressLine = 'Road 3, Test Area, Dhaka' }
+$sh = Call 'POST' '/shops' $own @{ name = "Dash Test $stamp"; addressLine = 'Road 3, Test Area, Dhaka'; phone = '01712345678' }
 $newId = $sh.json.data.id
 $newSlug = $sh.json.data.slug
 Need $newId 'the test shop'

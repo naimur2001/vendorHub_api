@@ -80,7 +80,7 @@ Check 'a customer cannot create products' (NewProduct $customer $tech "X $stamp"
 Check 'another shop owner cannot create for TechZone' (NewProduct $owner3 $tech "Y $stamp").status 403
 $reg = Call 'POST' '/auth/register' $null @{ name = 'New Owner'; email = "np$stamp@vendorshub.test"; password = 'Password123!'; role = 'SHOP_OWNER' }
 $newOwner = $reg.json.data.accessToken
-$newShop = (Call 'POST' '/shops' $newOwner @{ name = "Unverified $stamp"; addressLine = 'Level 2, Shop 3, Test Plaza, Dhaka' }).json.data.id
+$newShop = (Call 'POST' '/shops' $newOwner @{ name = "Unverified $stamp"; addressLine = 'Level 2, Shop 3, Test Plaza, Dhaka'; phone = '01712345678' }).json.data.id
 Check 'an UNVERIFIED shop cannot create products' (NewProduct $newOwner $newShop "Z $stamp").status 403
 
 # ---- 3. input rules ----

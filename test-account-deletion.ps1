@@ -72,7 +72,7 @@ Check 'the login answer shows the date' ([bool]$again.json.data.user.deletionSch
 Check 'the customer cancels the deletion' (Call 'DELETE' '/users/me/deletion' $again.json.data.accessToken $null).status 200
 Check 'the cart works again' (Call 'GET' '/cart' $again.json.data.accessToken $null).status 200
 $o = Register 'o' 'SHOP_OWNER'
-$shop = (Call 'POST' '/shops' $o.token @{ name = "Deletion Test Shop $stamp"; addressLine = 'Level 1, Shop 2, Test Plaza, Dhaka' }).json.data
+$shop = (Call 'POST' '/shops' $o.token @{ name = "Deletion Test Shop $stamp"; addressLine = 'Level 1, Shop 2, Test Plaza, Dhaka'; phone = '01712345678' }).json.data
 Check 'the owner requests deletion' (Call 'POST' '/users/me/deletion' $o.token @{ password = 'Password123!' }).status 200
 Check 'the owned shop is hidden' (Call 'GET' "/shops/$($shop.slug)" $null $null).status 404
 Check 'the owner cancels' (Call 'DELETE' '/users/me/deletion' $o.token $null).status 200

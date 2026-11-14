@@ -197,6 +197,9 @@ model Shop {
   levelFloor        String? // "Level 3"
   shopNumber        String? // "Shop 42"
   addressLine       String
+  phone             String? // public shop phone, BD mobile 01XXXXXXXXX (required for new shops)
+  whatsapp          String? // same format
+  socialLinks       Json? // { facebook, instagram, tiktok, youtube, website }: validated https links
   latitude          Float?
   longitude         Float?
   verificationLevel VerificationLevel @default(UNVERIFIED)

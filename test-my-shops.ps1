@@ -119,7 +119,7 @@ Need ($reg.status -eq 201) 'registering a shop owner'
 $new = $reg.json.data.accessToken
 Check 'a new shop owner starts with no shops' (MyShops $new).Count 0
 
-$c = Call 'POST' '/shops' $new @{ name = "My Shop Test $stamp"; addressLine = 'Level 1, Shop 5, Bashundhara City, Dhaka' }
+$c = Call 'POST' '/shops' $new @{ name = "My Shop Test $stamp"; addressLine = 'Level 1, Shop 5, Bashundhara City, Dhaka'; phone = '01712345678' }
 Need ($c.status -eq 201) 'creating a shop'
 $shopId = $c.json.data.id
 $s = @(MyShops $new)

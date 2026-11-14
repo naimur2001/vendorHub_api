@@ -134,6 +134,33 @@ components:
         shop:
           type: object
           additionalProperties: true
+          required: [id, name, slug, logoUrl, levelFloor, shopNumber, addressLine, phone, verificationLevel]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            slug:
+              type: string
+            logoUrl:
+              type: string
+              nullable: true
+            levelFloor:
+              type: string
+              nullable: true
+            shopNumber:
+              type: string
+              nullable: true
+            addressLine:
+              type: string
+            phone:
+              type: string
+              nullable: true
+              example: '01712345678'
+              description: The shop's public phone, to call about the order. Null only for shops created before phones existed.
+            verificationLevel:
+              $ref: '#/components/schemas/VerificationLevel'
         items:
           type: array
           items:

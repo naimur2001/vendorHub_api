@@ -76,11 +76,11 @@ $marketId = $market.json.data[0].id
 
 $nameA = "Verify A $stamp"
 $nameB = "Verify B $stamp"
-$r = Call 'POST' '/shops' $own @{ name = $nameA; addressLine = 'Level 1, Shop 10, Test Mall, Dhaka'; marketId = $marketId; latitude = 23.8; longitude = 90.4 }
+$r = Call 'POST' '/shops' $own @{ name = $nameA; addressLine = 'Level 1, Shop 10, Test Mall, Dhaka'; phone = '01712345678'; marketId = $marketId; latitude = 23.8; longitude = 90.4 }
 $shopA = $r.json.data.id
 $slugA = $r.json.data.slug
 Need $shopA 'test shop A'
-$r = Call 'POST' '/shops' $own @{ name = $nameB; addressLine = 'Road 3, Test Area, Dhaka' }
+$r = Call 'POST' '/shops' $own @{ name = $nameB; addressLine = 'Road 3, Test Area, Dhaka'; phone = '01712345678' }
 $shopB = $r.json.data.id
 Need $shopB 'test shop B'
 Write-Host "Created test shops: $nameA and $nameB"

@@ -102,7 +102,11 @@ paths:
       tags: [Shops]
       operationId: updateShop
       summary: Edit the shop profile (owner or admin); logo and banner have their own upload endpoints
-      description: Here {shop} is the shop ID. Unknown fields (also logoUrl and bannerUrl) are rejected with 400.
+      description: >-
+        Here {shop} is the shop ID. Unknown fields (also logoUrl and bannerUrl) are rejected with 400.
+        Only the owner or an admin; staff get 403. The phone can be changed but not removed (null is
+        rejected); whatsapp null removes it; socialLinks null removes every link. A change of phone,
+        whatsapp or socialLinks is written to the audit log (shop.contact_updated, field names only).
       security:
         - bearerAuth: []
       parameters:
@@ -126,6 +130,20 @@ paths:
                   type: string
                   minLength: 2
                   maxLength: 100
+                phone:
+                  type: string
+                  pattern: '^01\d{9}$'
+                  example: '01712345678'
+                  description: Bangladesh mobile number. Not nullable.
+                whatsapp:
+                  type: string
+                  pattern: '^01\d{9}$'
+                  nullable: true
+                  example: '01712345678'
+                socialLinks:
+                  allOf:
+                    - $ref: '#/components/schemas/ShopSocialLinksInput'
+                  nullable: true
                 description:
                   type: string
                   nullable: true
