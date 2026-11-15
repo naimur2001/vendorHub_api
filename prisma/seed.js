@@ -198,23 +198,23 @@ async function main() {
     brands[name] = await prisma.brand.create({ data: { name } });
   }
 
-  // ---------- Products (12 without a photo + 23 with a real photo) ----------
+  // ---------- Products (35, each with a real photo; the first 12 reuse fitting pictures of the list below) ----------
   // [title, brand or null, category, msrp, specs, photo (optional)]
   // The photo is the id of https://images.unsplash.com/photo-<id>; see "seed product photos" at the top.
   // New products go at the END: the listing loop below works by position, so the first 12 keep their listings.
   const productDefs = [
-    ['Galaxy A55 5G (8/128GB)', 'Samsung', catPhones, 41999, { ram: '8GB', storage: '128GB', color: 'Awesome Navy' }],
-    ['Galaxy S24 (8/256GB)', 'Samsung', catPhones, 114999, { ram: '8GB', storage: '256GB', color: 'Onyx Black' }],
-    ['iPhone 15 (128GB)', 'Apple', catPhones, 119900, { storage: '128GB', color: 'Blue' }],
-    ['Redmi Note 13 Pro (8/256GB)', 'Xiaomi', catPhones, 38999, { ram: '8GB', storage: '256GB', color: 'Midnight Black' }],
-    ['Poco X6 (8/256GB)', 'Xiaomi', catPhones, 32999, { ram: '8GB', storage: '256GB', color: 'Mirage Blue' }],
-    ['Dell Inspiron 15 3520', 'Dell', catLaptops, 72000, { cpu: 'Core i5-1235U', ram: '8GB', storage: '512GB SSD' }],
-    ['Dell Latitude 5440', 'Dell', catLaptops, 118000, { cpu: 'Core i7-1355U', ram: '16GB', storage: '512GB SSD' }],
-    ['MacBook Air M2 (8/256GB)', 'Apple', catLaptops, 139900, { chip: 'Apple M2', ram: '8GB', storage: '256GB SSD' }],
-    ['AirPods Pro (2nd gen)', 'Apple', catAcc, 29900, { type: 'TWS earbuds', anc: true }],
-    ['Galaxy Buds2 Pro', 'Samsung', catAcc, 19900, { type: 'TWS earbuds', anc: true }],
-    ['Mi Power Bank 3 20000mAh', 'Xiaomi', catAcc, 3200, { capacity: '20000mAh', ports: 2 }],
-    ['Samsung 25W Fast Charger', 'Samsung', catAcc, 1800, { power: '25W', cable: 'USB-C' }],
+    ['Galaxy A55 5G (8/128GB)', 'Samsung', catPhones, 41999, { ram: '8GB', storage: '128GB', color: 'Awesome Navy' }, '1511707171634-5f897ff02aa9'],
+    ['Galaxy S24 (8/256GB)', 'Samsung', catPhones, 114999, { ram: '8GB', storage: '256GB', color: 'Onyx Black' }, '1598327105666-5b89351aff97'],
+    ['iPhone 15 (128GB)', 'Apple', catPhones, 119900, { storage: '128GB', color: 'Blue' }, '1592750475338-74b7b21085ab'],
+    ['Redmi Note 13 Pro (8/256GB)', 'Xiaomi', catPhones, 38999, { ram: '8GB', storage: '256GB', color: 'Midnight Black' }, '1598327105666-5b89351aff97'],
+    ['Poco X6 (8/256GB)', 'Xiaomi', catPhones, 32999, { ram: '8GB', storage: '256GB', color: 'Mirage Blue' }, '1511707171634-5f897ff02aa9'],
+    ['Dell Inspiron 15 3520', 'Dell', catLaptops, 72000, { cpu: 'Core i5-1235U', ram: '8GB', storage: '512GB SSD' }, '1496181133206-80ce9b88a853'],
+    ['Dell Latitude 5440', 'Dell', catLaptops, 118000, { cpu: 'Core i7-1355U', ram: '16GB', storage: '512GB SSD' }, '1496181133206-80ce9b88a853'],
+    ['MacBook Air M2 (8/256GB)', 'Apple', catLaptops, 139900, { chip: 'Apple M2', ram: '8GB', storage: '256GB SSD' }, '1496181133206-80ce9b88a853'],
+    ['AirPods Pro (2nd gen)', 'Apple', catAcc, 29900, { type: 'TWS earbuds', anc: true }, '1600294037681-c80b4cb5b434'],
+    ['Galaxy Buds2 Pro', 'Samsung', catAcc, 19900, { type: 'TWS earbuds', anc: true }, '1606220945770-b5b6c2c55bf1'],
+    ['Mi Power Bank 3 20000mAh', 'Xiaomi', catAcc, 3200, { capacity: '20000mAh', ports: 2 }, '1605236453806-6ff36851218e'],
+    ['Samsung 25W Fast Charger', 'Samsung', catAcc, 1800, { power: '25W', cable: 'USB-C' }, '1605236453806-6ff36851218e'],
     // Clothing
     ["Men's Shirt", null, catClothing, 1450, { material: 'Cotton', fit: 'Regular', sizes: 'M, L, XL' }, '1596755094514-f87e34085b2c'],
     ['Formal Shirt', null, catClothing, 1850, { material: 'Cotton blend', fit: 'Slim', sizes: 'M, L, XL' }, '1602810318383-e386cc2a3ccf'],
@@ -245,12 +245,12 @@ async function main() {
   ];
 
   // all photos at once (fast after the first run: the downloads are kept)
-  const photoIds = productDefs.map((def) => def[5]).filter(Boolean);
-  const published = new Map(await Promise.all(photoIds.map(async (id) => [id, await publishPhoto(id)])));
+  // one published file per product, even when two products use the same picture
+  const published = await Promise.all(productDefs.map((def) => (def[5] ? publishPhoto(def[5]) : null)));
 
   const products = [];
-  for (const [title, brand, category, msrp, specs, photoId] of productDefs) {
-    const photo = photoId ? published.get(photoId) : null;
+  for (const [i, [title, brand, category, msrp, specs]] of productDefs.entries()) {
+    const photo = published[i];
     products.push(
       await prisma.product.create({
         data: {
