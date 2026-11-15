@@ -1,8 +1,14 @@
-   {
-     "permissions": {
-       "deny": [
-         "Read(./.env)",
-         "Read(./.env.*)"
-       ]
-     }
-   }
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($ok = $false; foreach \\($i in 1..30\\) { try { Invoke-WebRequest -Uri 'http://localhost:4000/health' -UseBasicParsing | Out-Null; $ok = $true; break } catch { Start-Sleep -Milliseconds 700 } }; \"server up: $ok\"; if \\($ok\\) { powershell -NoProfile -ExecutionPolicy Bypass -File .\\\\test-try-on.ps1 | Where-Object { $_ -cnotmatch '^PASS  ' } })",
+      "PowerShell(try { Invoke-WebRequest -Uri 'http://localhost:4000/health' -UseBasicParsing | Out-Null; 'server up' } catch { 'server DOWN' }; powershell -NoProfile -ExecutionPolicy Bypass -File .\\\\test-image-search.ps1 | Where-Object { $_ -cnotmatch '^PASS  ' }; git status --short | Measure-Object -Line | ForEach-Object { \"changed files: $\\($_.Lines\\)\" }; git log --oneline -1)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
+  }
+}
