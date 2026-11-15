@@ -1,7 +1,48 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import os from 'node:os';
+import path from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { processImage } from '../src/lib/images.js';
+import { stageImage, removeImage, imageUrls } from '../src/lib/storage.js';
 
 const prisma = new PrismaClient();
+
+// ---------- seed product photos ----------
+// The website only shows images from our own API (its Content-Security-Policy blocks other hosts),
+// so a seed photo is never a link to another site: it is downloaded once (kept in the temp folder),
+// goes through the normal pipeline (processImage + storage.js) and is served from /media like an
+// uploaded photo. Without a network (and without the kept copy) the product is seeded with no photo.
+const PHOTO_CACHE = path.join(os.tmpdir(), 'vendors-hub-seed-photos');
+const SEED_PHOTO = { purpose: 'PRODUCT', ownerId: null }; // how the photos of an earlier seed run are found again
+
+async function downloadPhoto(id) {
+  const file = path.join(PHOTO_CACHE, `${id}.jpg`);
+  try {
+    return await readFile(file);
+  } catch {
+    // not downloaded yet
+  }
+  const res = await fetch(`https://images.unsplash.com/photo-${id}?w=1200&q=80`, { signal: AbortSignal.timeout(20000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const bytes = Buffer.from(await res.arrayBuffer());
+  await mkdir(PHOTO_CACHE, { recursive: true });
+  await writeFile(file, bytes);
+  return bytes;
+}
+
+// Returns { key, width, height }, or null when the photo cannot be loaded or is not a valid image.
+async function publishPhoto(id) {
+  try {
+    const processed = await processImage(await downloadPhoto(id), 'PRODUCT');
+    const staged = await stageImage(processed);
+    await staged.commit();
+    return { key: staged.key, width: processed.width, height: processed.height };
+  } catch (err) {
+    console.warn(`Seed photo ${id} skipped: ${err.message}`);
+    return null;
+  }
+}
 
 const slugify = (s) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -51,7 +92,10 @@ async function clean() {
 }
 async function main() {
   console.log('Seeding...');
+  // the files of the last run's seed photos are deleted once their database rows are gone
+  const oldPhotos = await prisma.image.findMany({ where: SEED_PHOTO, select: { key: true } });
   await clean();
+  await Promise.all(oldPhotos.map((p) => removeImage(p.key).catch(() => {})));
 
   const passwordHash = await bcrypt.hash('Password123!', 10);
 
@@ -144,6 +188,9 @@ async function main() {
   const catPhones = await prisma.category.create({ data: { name: 'Mobile Phones', slug: 'mobile-phones' } });
   const catLaptops = await prisma.category.create({ data: { name: 'Laptops', slug: 'laptops' } });
   const catAcc = await prisma.category.create({ data: { name: 'Accessories', slug: 'accessories' } });
+  const catClothing = await prisma.category.create({ data: { name: 'Clothing', slug: 'clothing' } });
+  const catAudio = await prisma.category.create({ data: { name: 'Headphones & Earbuds', slug: 'headphones-earbuds' } });
+  const catOther = await prisma.category.create({ data: { name: 'Other Electronics', slug: 'other-electronics' } });
 
   const brandNames = ['Samsung', 'Apple', 'Xiaomi', 'Dell'];
   const brands = {};
@@ -151,7 +198,10 @@ async function main() {
     brands[name] = await prisma.brand.create({ data: { name } });
   }
 
-  // ---------- Products (12) ----------
+  // ---------- Products (12 without a photo + 23 with a real photo) ----------
+  // [title, brand or null, category, msrp, specs, photo (optional)]
+  // The photo is the id of https://images.unsplash.com/photo-<id>; see "seed product photos" at the top.
+  // New products go at the END: the listing loop below works by position, so the first 12 keep their listings.
   const productDefs = [
     ['Galaxy A55 5G (8/128GB)', 'Samsung', catPhones, 41999, { ram: '8GB', storage: '128GB', color: 'Awesome Navy' }],
     ['Galaxy S24 (8/256GB)', 'Samsung', catPhones, 114999, { ram: '8GB', storage: '256GB', color: 'Onyx Black' }],
@@ -165,16 +215,51 @@ async function main() {
     ['Galaxy Buds2 Pro', 'Samsung', catAcc, 19900, { type: 'TWS earbuds', anc: true }],
     ['Mi Power Bank 3 20000mAh', 'Xiaomi', catAcc, 3200, { capacity: '20000mAh', ports: 2 }],
     ['Samsung 25W Fast Charger', 'Samsung', catAcc, 1800, { power: '25W', cable: 'USB-C' }],
+    // Clothing
+    ["Men's Shirt", null, catClothing, 1450, { material: 'Cotton', fit: 'Regular', sizes: 'M, L, XL' }, '1596755094514-f87e34085b2c'],
+    ['Formal Shirt', null, catClothing, 1850, { material: 'Cotton blend', fit: 'Slim', sizes: 'M, L, XL' }, '1602810318383-e386cc2a3ccf'],
+    ["Men's T-Shirt", null, catClothing, 650, { material: 'Cotton', color: 'White', sizes: 'S, M, L, XL' }, '1521572163474-6864f9cf17ab'],
+    ['Black T-Shirt', null, catClothing, 550, { material: 'Cotton', color: 'Black', sizes: 'S, M, L, XL' }, '1503341504253-dff4815485f1'],
+    ['Denim Jeans', null, catClothing, 1950, { material: 'Denim', fit: 'Regular', sizes: '30, 32, 34, 36' }, '1542272604-787c3835535d'],
+    ['Casual Pants', null, catClothing, 1650, { material: 'Cotton twill', fit: 'Regular', sizes: '30, 32, 34, 36' }, '1473966968600-fa801b869a1a'],
+    ["Men's Hoodie", null, catClothing, 2200, { material: 'Fleece', sizes: 'M, L, XL' }, '1556821840-3a63f95609a7'],
+    ['Jacket', null, catClothing, 3500, { material: 'Polyester', sizes: 'M, L, XL' }, '1591047139829-d91aecb6caea'],
+    // Electronics - Mobile
+    ['Smartphone', null, catPhones, 24999, { ram: '6GB', storage: '128GB' }, '1511707171634-5f897ff02aa9'],
+    ['iPhone', 'Apple', catPhones, 99900, { storage: '128GB' }, '1592750475338-74b7b21085ab'],
+    ['Android Phone', null, catPhones, 18999, { ram: '4GB', storage: '64GB' }, '1598327105666-5b89351aff97'],
+    ['Smartphone Accessories', null, catPhones, 1200, { type: 'Accessory kit' }, '1605236453806-6ff36851218e'],
+    // Headphones & Earbuds
+    ['Wireless Headphones', null, catAudio, 6500, { type: 'Over-ear', connection: 'Bluetooth' }, '1505740420928-5e560c06d30e'],
+    ['Bluetooth Headphones', null, catAudio, 4500, { type: 'Over-ear', connection: 'Bluetooth' }, '1546435770-a3e426bf472b'],
+    ['Wireless Earbuds', null, catAudio, 3200, { type: 'TWS earbuds', connection: 'Bluetooth' }, '1606220945770-b5b6c2c55bf1'],
+    ['AirPods', 'Apple', catAudio, 19900, { type: 'TWS earbuds', connection: 'Bluetooth' }, '1600294037681-c80b4cb5b434'],
+    ['Bluetooth Earphones', null, catAudio, 1500, { type: 'In-ear', connection: 'Bluetooth' }, '1484704849700-f032a568e944'],
+    ['Gaming Headset', null, catAudio, 5500, { type: 'Over-ear', microphone: true }, '1599669454699-248893623440'],
+    // Other Electronics
+    ['Smartwatch', null, catOther, 4500, { display: 'AMOLED', connection: 'Bluetooth' }, '1523275335684-37898b6baf30'],
+    ['Laptop', null, catOther, 65000, { ram: '8GB', storage: '512GB SSD' }, '1496181133206-80ce9b88a853'],
+    ['Keyboard', null, catOther, 2800, { type: 'Mechanical', connection: 'USB' }, '1587829741301-dc798b83add3'],
+    ['Computer Mouse', null, catOther, 950, { type: 'Wireless', connection: 'USB receiver' }, '1527864550417-7fd91fc51a46'],
+    ['Bluetooth Speaker', null, catOther, 3800, { type: 'Portable', connection: 'Bluetooth' }, '1608043152269-423dbba4e7e1'],
   ];
 
+  // all photos at once (fast after the first run: the downloads are kept)
+  const photoIds = productDefs.map((def) => def[5]).filter(Boolean);
+  const published = new Map(await Promise.all(photoIds.map(async (id) => [id, await publishPhoto(id)])));
+
   const products = [];
-  for (const [title, brand, category, msrp, specs] of productDefs) {
+  for (const [title, brand, category, msrp, specs, photoId] of productDefs) {
+    const photo = photoId ? published.get(photoId) : null;
     products.push(
       await prisma.product.create({
         data: {
-          title, slug: slugify(title), brandId: brands[brand].id, categoryId: category.id,
-          description: `${title} - genuine product with official warranty.`,
-          specs, msrp, images: [],
+          title, slug: slugify(title.replace(/'/g, '')), brandId: brand ? brands[brand].id : null, categoryId: category.id,
+          description: category === catClothing ? `${title} - comfortable everyday wear.` : `${title} - genuine product with official warranty.`,
+          specs, msrp,
+          // the same shape an uploaded photo has: an Image row plus its /media link in Product.images
+          images: photo ? [imageUrls(photo.key).url] : [],
+          ...(photo && { photos: { create: { ...photo, ...SEED_PHOTO, sortOrder: 0 } } }),
         },
       }),
     );
