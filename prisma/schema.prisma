@@ -373,6 +373,10 @@ model ShopListing {
   cartItems  CartItem[]
   orderItems OrderItem[]
   wishlistItems WishlistItem[]
+  views           ListingView[]
+  addToCartEvents AddToCartEvent[]
+  lowStockAt         Int?      @default(3) // notify the shop team when stockQty falls to this or below; null = off
+  lowStockNotifiedAt DateTime? // set when notified; cleared when restocked above lowStockAt
 
   @@unique([shopId, productId])
   @@index([productId, price])
@@ -497,6 +501,33 @@ model WishlistItem {
   @@unique([userId, listingId])
   @@index([listingId])
   @@index([userId, createdAt])
+}
+
+// Shop analytics. A view is counted once per visitor per (Dhaka) day: visitorHash is an HMAC of
+// the day and the visitor (user id, or IP + user agent) with a server secret, so it cannot be
+// reversed or linked across days. No IP, user id or user agent is stored.
+model ListingView {
+  id          String      @id @default(uuid())
+  listingId   String
+  shopId      String
+  day         DateTime    @db.Date
+  visitorHash String
+  createdAt   DateTime    @default(now())
+  listing     ShopListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([listingId, day, visitorHash])
+  @@index([shopId, day])
+}
+
+model AddToCartEvent {
+  id        String      @id @default(uuid())
+  listingId String
+  shopId    String
+  day       DateTime    @db.Date
+  createdAt DateTime    @default(now())
+  listing   ShopListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, day])
 }
 
 enum MessageSenderRole {

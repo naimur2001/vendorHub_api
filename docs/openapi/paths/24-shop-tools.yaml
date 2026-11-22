@@ -1,0 +1,243 @@
+# Owner tools (shop owner or staff only; admins get 403): analytics and CSV import of listings.
+# Low stock: listings have lowStockAt (default 3, null = off). When an order brings stockQty to
+# lowStockAt or below, the shop team gets ONE notification of type LOW_STOCK; it can come again
+# after the stock went back above lowStockAt. GET /shops/{shopId}/listings?lowStock=true lists them.
+paths:
+  /api/v1/shops/{shopId}/analytics:
+    get:
+      tags: [Shop tools]
+      operationId: shopAnalytics
+      summary: Views, add-to-carts, orders, revenue and bargains per day, and the top 5 listings
+      description: |
+        Days are Asia/Dhaka days, oldest first, every day present (zeros included).
+        views = unique visitors of the shop's product pages (one per visitor per day; only a keyed
+        hash is stored, no personal data). orders and revenue = orders placed that day, cancelled
+        ones excluded. bargainWinRate = accepted / offers in percent (null without offers).
+        topListings = the most viewed listings in the range (then units sold).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ToolsShopId'
+        - name: range
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ['7d', '30d']
+            default: '7d'
+      responses:
+        '200':
+          description: The report.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ShopAnalytics'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/shops/{shopId}/listings/import:
+    post:
+      tags: [Shop tools]
+      operationId: importShopListings
+      summary: Create or update many listings from a CSV file (all or nothing)
+      description: |
+        Multipart field `file`, at most 1 MB and 500 data rows, UTF-8, first row = header.
+        Columns (any order, case-insensitive): productSlug, or title + category (category slug); price
+        (whole taka, required); stockQty (empty = not tracked); availability (IN_STOCK, AVAILABLE,
+        LIMITED, OUT_OF_STOCK; empty = from stockQty). A title + category must match an EXISTING product:
+        the CSV never creates products (add a new one with POST /shops/{shopId}/products). Photos are not
+        part of the CSV.
+        Every row is checked first. Any wrong row: 422, nothing saved, error.details.errors lists every
+        problem with its row number (row 1 = the header). Otherwise everything is saved in one
+        transaction: an existing listing of the product is updated (and re-activated), else created.
+        Audited as listing.imported.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ToolsShopId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+            example: |
+              productSlug,price,stockQty,availability
+              galaxy-a55-5g-8-128gb,38500,12,
+              redmi-note-13,19999,,AVAILABLE
+      responses:
+        '200':
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ImportResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: Larger than 1 MB or more than 500 rows.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Some rows are invalid; nothing was saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, error]
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: object
+                    required: [message, details]
+                    properties:
+                      message:
+                        type: string
+                        example: Some rows are invalid. Nothing was saved.
+                      details:
+                        $ref: '#/components/schemas/ImportResult'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+components:
+  parameters:
+    ToolsShopId:
+      name: shopId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    LowStockAt:
+      type: integer
+      nullable: true
+      minimum: 0
+      maximum: 10000
+      default: 3
+      description: Notify the shop team when stockQty falls to this or below; null = no alert.
+    ImportResult:
+      type: object
+      required: [created, updated, errors]
+      properties:
+        created:
+          type: integer
+        updated:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: object
+            required: [row, message]
+            properties:
+              row:
+                type: integer
+                description: The spreadsheet row (row 1 is the header).
+              message:
+                type: string
+    AnalyticsDay:
+      type: object
+      required: [date, views, addToCarts, orders, revenue, bargainOffers, bargainsAccepted]
+      properties:
+        date:
+          type: string
+          format: date
+        views:
+          type: integer
+        addToCarts:
+          type: integer
+        orders:
+          type: integer
+        revenue:
+          type: integer
+        bargainOffers:
+          type: integer
+        bargainsAccepted:
+          type: integer
+    ShopAnalytics:
+      type: object
+      required: [range, timeZone, from, to, days, totals, topListings]
+      properties:
+        range:
+          type: string
+          enum: ['7d', '30d']
+        timeZone:
+          type: string
+          example: Asia/Dhaka
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalyticsDay'
+        totals:
+          allOf:
+            - $ref: '#/components/schemas/AnalyticsDay'
+            - type: object
+              required: [bargainWinRate]
+              properties:
+                bargainWinRate:
+                  type: number
+                  nullable: true
+                  description: Percent, one decimal.
+        topListings:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            required: [listingId, productTitle, productSlug, price, views, addToCarts, unitsSold, revenue]
+            properties:
+              listingId:
+                type: string
+                format: uuid
+              productTitle:
+                type: string
+                nullable: true
+              productSlug:
+                type: string
+                nullable: true
+              price:
+                type: integer
+                nullable: true
+              views:
+                type: integer
+              addToCarts:
+                type: integer
+              unitsSold:
+                type: integer
+              revenue:
+                type: integer

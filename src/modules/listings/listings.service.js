@@ -2,6 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { assertShopAccess } from '../../lib/shopAccess.js';
 import { notifyPriceDrop } from '../notifications/notifications.events.js';
+import { stockIsFine } from '../../lib/availability.js';
 
 export function deriveAvailability(stockQty) {
   if (stockQty === null || stockQty === undefined) return 'AVAILABLE';
@@ -15,10 +16,18 @@ const productSelect = {
 };
 
 // The owner view includes private fields: stockQty, minOfferPercent, isActive.
-export async function listShopListings(user, shopId) {
+// The stock is low when it is set, the alert is on, and stockQty <= lowStockAt.
+export const lowStockWhere = {
+  stockQty: { not: null },
+  lowStockAt: { not: null },
+  AND: [{ stockQty: { lte: prisma.shopListing.fields.lowStockAt } }],
+};
+
+
+export async function listShopListings(user, shopId, { lowStock } = {}) {
   await assertShopAccess(user, shopId);
   return prisma.shopListing.findMany({
-    where: { shopId },
+    where: { shopId, ...(lowStock && lowStockWhere) },
     orderBy: { createdAt: 'desc' },
     include: { product: productSelect },
   });
@@ -67,11 +76,18 @@ export async function updateListing(user, shopId, listingId, input) {
   if (input.stockQty !== undefined && input.availability === undefined) {
     data.availability = deriveAvailability(input.stockQty);
   }
-  const updated = await prisma.shopListing.update({
+  let updated = await prisma.shopListing.update({
     where: { id: listingId },
     data,
     include: { product: productSelect },
   });
+  if (updated.lowStockNotifiedAt && stockIsFine(updated)) {
+    updated = await prisma.shopListing.update({
+      where: { id: listingId },
+      data: { lowStockNotifiedAt: null },
+      include: { product: productSelect },
+    });
+  }
   // after the update: customers who saved this listing hear about a lower price (never throws)
   if (updated.price < listing.price) await notifyPriceDrop(listingId, updated.price);
   return updated;

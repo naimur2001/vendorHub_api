@@ -22,6 +22,21 @@ export function receiveFileField(field) {
 // markets, products, shop logo and banner
 export const receivePhoto = receiveFileField('image');
 
+// CSV import: exactly one file in the field "file", at most 1 MB, nothing else.
+const csvUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 1024 * 1024, files: 1, fields: 0, parts: 1 },
+}).single('file');
+
+export function receiveCsv(req, res, next) {
+  csvUpload(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') return next(new AppError(413, 'The CSV file is larger than 1 MB'));
+    if (err.name === 'MulterError') return next(new AppError(400, 'Send exactly one CSV file in the multipart field "file"'));
+    return next(err);
+  });
+}
+
 // Home banners: "media" and an optional phone version "mobileMedia" (5 MB each), plus the text fields.
 // A JSON request (no multipart) passes through untouched, so PATCH also works without files.
 const bannerUpload = multer({

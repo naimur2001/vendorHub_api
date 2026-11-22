@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { assertShopAccess } from '../../lib/shopAccess.js';
-import { deriveAvailability } from '../../lib/availability.js';
+import { deriveAvailability, stockIsFine } from '../../lib/availability.js';
 import { getOrder as getCustomerOrder, statusEventsInclude, reservationTimes } from '../checkout/checkout.service.js';
 import { notifyStatusChange, notifyCustomerCancel } from '../notifications/notifications.events.js';
 import { unreadCounts } from '../orderChat/orderChat.service.js';
@@ -71,7 +71,11 @@ export async function restock(tx, orderId) {
     });
     await tx.shopListing.update({
       where: { id: item.listingId },
-      data: { availability: deriveAvailability(updated.stockQty) },
+      data: {
+        availability: deriveAvailability(updated.stockQty),
+        // back above the low-stock threshold: the next low stock may notify again
+        ...(updated.lowStockNotifiedAt && stockIsFine(updated) && { lowStockNotifiedAt: null }),
+      },
     });
   }
 }

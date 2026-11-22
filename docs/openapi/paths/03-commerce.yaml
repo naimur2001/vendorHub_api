@@ -14,6 +14,13 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: lowStock
+          in: query
+          required: false
+          description: true = only listings whose stockQty is at or below their lowStockAt.
+          schema:
+            type: string
+            enum: ['true', 'false']
       responses:
         '200':
           description: All listings of the shop, active and inactive.
@@ -77,6 +84,8 @@ paths:
                   minimum: 50
                   maximum: 100
                   default: 92
+                lowStockAt:
+                  $ref: '#/components/schemas/LowStockAt'
       responses:
         '201':
           description: The new listing.
@@ -137,6 +146,8 @@ paths:
                   maximum: 100
                 isActive:
                   type: boolean
+                lowStockAt:
+                  $ref: '#/components/schemas/LowStockAt'
       responses:
         '200':
           description: The updated listing.

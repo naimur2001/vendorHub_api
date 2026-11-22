@@ -37,6 +37,7 @@ import searchRoutes from './modules/search/search.routes.js';
 import bannerRoutes from './modules/banners/banners.routes.js';
 import wishlistRoutes from './modules/wishlist/wishlist.routes.js';
 import orderChatRoutes from './modules/orderChat/orderChat.routes.js';
+import shopToolsRoutes from './modules/shopTools/shopTools.routes.js';
 export const app = express();
 
 // Behind Nginx or a load balancer: trust its X-Forwarded-For so rate limiting sees real client IPs
@@ -123,6 +124,7 @@ app.use('/api/v1', adminRoutes);
 app.use('/api/v1', adminCatalogRoutes);
 app.use('/api/v1', bannerRoutes);
 app.use('/api/v1', orderChatRoutes);
+app.use('/api/v1', shopToolsRoutes);
 app.use('/api/v1', userRoutes);
 app.use('/api/v1', staffRoutes);
 app.use('/api/v1', uploadRoutes);

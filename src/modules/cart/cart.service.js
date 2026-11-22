@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
+import { recordAddToCart } from '../../lib/analytics.js';
 
 const MAX_QTY_PER_LINE = 10;
 
@@ -157,6 +158,7 @@ export async function addItem(userId, { listingId, quantity }) {
   } else {
     await prisma.cartItem.create({ data: { cartId: cart.id, listingId, quantity: newQty } });
   }
+  recordAddToCart(listing); // shop analytics, best effort
   return getCart(userId);
 }
 

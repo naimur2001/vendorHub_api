@@ -72,6 +72,44 @@ export async function notifyPriceDrop(listingId, newPrice) {
   }
 }
 
+// ---------- low stock ----------
+
+// After a checkout: each listing of it whose stock fell to its lowStockAt or below tells the shop
+// team ONCE (lowStockNotifiedAt is claimed with a guarded update; it is cleared again when the
+// stock goes back above the threshold, see listings.service and fulfilment restock).
+export async function notifyLowStock(checkoutId) {
+  try {
+    const items = await prisma.orderItem.findMany({ where: { subOrder: { checkoutId } }, select: { listingId: true } });
+    const ids = [...new Set(items.map((i) => i.listingId))];
+    if (ids.length === 0) return;
+    const low = await prisma.shopListing.findMany({
+      where: {
+        id: { in: ids },
+        lowStockNotifiedAt: null,
+        stockQty: { not: null },
+        lowStockAt: { not: null },
+        AND: [{ stockQty: { lte: prisma.shopListing.fields.lowStockAt } }],
+      },
+      select: { id: true, shopId: true, stockQty: true, lowStockAt: true, product: { select: { title: true } } },
+    });
+    for (const l of low) {
+      const claimed = await prisma.shopListing.updateMany({
+        where: { id: l.id, lowStockNotifiedAt: null },
+        data: { lowStockNotifiedAt: new Date() },
+      });
+      if (claimed.count !== 1) continue;
+      await notify(await shopTeamIds(l.shopId), {
+        type: 'LOW_STOCK',
+        title: `Low stock: ${l.product.title}`,
+        body: `${l.stockQty} left (alert at ${l.lowStockAt}). Restock or update the listing.`,
+        data: { listingId: l.id, shopId: l.shopId, stockQty: l.stockQty },
+      });
+    }
+  } catch (err) {
+    logger.error(err, 'could not send low-stock notifications');
+  }
+}
+
 // ---------- orders ----------
 
 // After a checkout: every shop hears about ITS OWN order only; the customer gets one note per order.

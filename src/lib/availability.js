@@ -5,3 +5,7 @@ export function deriveAvailability(stockQty) {
   if (stockQty <= 5) return 'LIMITED';
   return 'IN_STOCK';
 }
+
+// Not low any more (restocked above lowStockAt, no number tracked, or the alert is off):
+// a listing in this state may send the next low-stock notification.
+export const stockIsFine = (l) => l.stockQty === null || l.lowStockAt === null || l.stockQty > l.lowStockAt;

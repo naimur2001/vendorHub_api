@@ -3,7 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { env } from '../../config/env.js';
 import { deriveAvailability } from '../../lib/availability.js';
-import { notifyNewOrders } from '../notifications/notifications.events.js';
+import { notifyNewOrders, notifyLowStock } from '../notifications/notifications.events.js';
 import { unreadCounts } from '../orderChat/orderChat.service.js';
 import { RESERVATION_HOURS, RESERVATION_CONFIRM_MINUTES, MAX_ACTIVE_RESERVATIONS } from '../../config/limits.js';
 
@@ -367,6 +367,7 @@ export async function payMock(userId, orderId) {
 export async function placeOrders(userId, input) {
   const result = await placeOrdersInTransaction(userId, input);
   await notifyNewOrders(userId, result.checkoutId); // never throws
+  await notifyLowStock(result.checkoutId); // never throws
   return result;
 }
 
@@ -419,6 +420,7 @@ export async function placeOrdersIdempotent(userId, input, key) {
       }),
     );
     await notifyNewOrders(userId, result.checkoutId); // never throws
+    await notifyLowStock(result.checkoutId); // never throws
     return { replayed: false, status: 201, body: { success: true, data: result } };
   } catch (err) {
     await prisma.idempotencyKey.delete({ where: { id: entry.id } }).catch(() => {});

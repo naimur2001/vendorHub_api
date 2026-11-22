@@ -1,7 +1,7 @@
 import * as listingService from './listings.service.js';
 
 export const list = async (req, res) => {
-  const data = await listingService.listShopListings(req.user, req.params.shopId);
+  const data = await listingService.listShopListings(req.user, req.params.shopId, req.validated);
   res.json({ success: true, data });
 };
 
