@@ -16,6 +16,10 @@ export const MAX_INPUT_PIXELS = 40_000_000;
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const ALLOWED_FORMATS = new Set(['jpeg', 'png', 'webp']);
 const WEBP_QUALITY = 82;
+// Animated GIFs (only for profiles with animated: true) become animated WebP.
+// All frames together are limited, and so is the number of frames.
+export const MAX_ANIMATED_PIXELS = 60_000_000;
+export const MAX_FRAMES = 150;
 
 // Size profiles: the main and thumbnail widths, and the smallest accepted photo.
 export const IMAGE_PROFILES = Object.freeze({
@@ -26,12 +30,17 @@ export const IMAGE_PROFILES = Object.freeze({
   LOGO: Object.freeze({ width: 512, height: 512, thumbWidth: 128, thumbHeight: 128, minWidth: 200, minHeight: 200, crop: true, enlarge: true }),
   // banner: exactly 1600 wide (+800 thumbnail)
   BANNER: Object.freeze({ width: 1600, thumbWidth: 800, minWidth: 1200, minHeight: 300, enlarge: true }),
+  // home page billboard: landscape, 3:1 recommended (e.g. 1800 x 600); GIFs stay animated
+  HOME_BANNER: Object.freeze({ width: 1800, thumbWidth: 900, minWidth: 900, minHeight: 300, animated: true }),
+  // optional phone version of a home banner (portrait or smaller)
+  HOME_BANNER_MOBILE: Object.freeze({ width: 1080, thumbWidth: 540, minWidth: 400, minHeight: 300, animated: true }),
     // search by photo: never stored; re-encoded (no EXIF/GPS) and made small before it goes to the AI
   SEARCH: Object.freeze({ width: 1024, thumbWidth: 64, minWidth: 1, minHeight: 1 }),
 });
 
 // Fixed messages: the uploaded file name or content is never echoed back.
 const NOT_ALLOWED = 'Only JPG, PNG or WebP photos are allowed';
+const NOT_ALLOWED_ANIMATED = 'Only JPG, PNG, WebP or GIF images are allowed';
 const UNREADABLE = 'The photo could not be read';
 const TOO_LARGE = 'The photo is too large to process';
 
@@ -43,16 +52,19 @@ const decoder = (buffer) => sharp(buffer, { limitInputPixels: MAX_INPUT_PIXELS, 
  * Validates an uploaded image and re-encodes it into a main WebP and a thumbnail WebP.
  * @param {Buffer} buffer        the uploaded bytes (kept in memory by multer)
  * @param {keyof IMAGE_PROFILES} profileName
- * @returns {Promise<{ full: Buffer, thumb: Buffer, width: number, height: number }>}
+ * @returns {Promise<{ full: Buffer, thumb: Buffer, width: number, height: number, animated: boolean }>}
  */
 export async function processImage(buffer, profileName) {
   const profile = IMAGE_PROFILES[profileName];
   if (!profile) throw new Error(`Unknown image profile: ${profileName}`);
-  if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new AppError(400, NOT_ALLOWED);
+  const notAllowed = profile.animated ? NOT_ALLOWED_ANIMATED : NOT_ALLOWED;
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new AppError(400, notAllowed);
 
   // 1a. our allow-list, from the first bytes
   const type = detectFileType(buffer);
-  if (!type || !ALLOWED_MIME.has(type.mime)) throw new AppError(400, NOT_ALLOWED);
+  const gif = Boolean(profile.animated && type?.mime === 'image/gif');
+  if (!type || (!ALLOWED_MIME.has(type.mime) && !gif)) throw new AppError(400, notAllowed);
+  if (gif) return processGif(buffer, profile);
 
   // 2. header only: the format according to the decoder, and the CLAIMED size
   let meta;
@@ -93,7 +105,48 @@ export async function processImage(buffer, profileName) {
       render(profile.width, profile.height),
       render(profile.thumbWidth, profile.thumbHeight),
     ]);
-    return { full: full.data, thumb: thumb.data, width: full.info.width, height: full.info.height };
+    return { full: full.data, thumb: thumb.data, width: full.info.width, height: full.info.height, animated: false };
+  } catch {
+    throw new AppError(400, UNREADABLE);
+  }
+}
+
+// A GIF: every frame is decoded and re-encoded as an (animated) WebP; the thumbnail is the first frame.
+// The GIF bytes themselves are never stored or served.
+const gifDecoder = (buffer, animated) =>
+  sharp(buffer, { animated, limitInputPixels: MAX_ANIMATED_PIXELS, failOn: 'error' });
+
+async function processGif(buffer, profile) {
+  let meta;
+  try {
+    meta = await gifDecoder(buffer, true).metadata();
+  } catch {
+    throw new AppError(400, UNREADABLE);
+  }
+  if (meta.format !== 'gif') throw new AppError(400, NOT_ALLOWED_ANIMATED);
+  const pages = meta.pages ?? 1;
+  const width = meta.width;
+  const height = meta.pageHeight ?? meta.height; // the height of ONE frame
+  if (!width || !height) throw new AppError(400, UNREADABLE);
+  if (pages > MAX_FRAMES || width * height * pages > MAX_ANIMATED_PIXELS) throw new AppError(400, TOO_LARGE);
+  if (width < profile.minWidth || height < profile.minHeight) {
+    throw new AppError(422, `The photo is too small (at least ${profile.minWidth} x ${profile.minHeight} pixels)`);
+  }
+
+  const resize = (w) => ({ width: w, fit: 'inside', withoutEnlargement: true });
+  try {
+    const [full, thumb] = await Promise.all([
+      gifDecoder(buffer, true).resize(resize(profile.width)).webp({ quality: WEBP_QUALITY }).toBuffer({ resolveWithObject: true }),
+      gifDecoder(buffer, false).resize(resize(profile.thumbWidth)).webp({ quality: WEBP_QUALITY }).toBuffer(),
+    ]);
+    const outWidth = full.info.width;
+    return {
+      full: full.data,
+      thumb,
+      width: outWidth,
+      height: Math.round((height * outWidth) / width),
+      animated: pages > 1,
+    };
   } catch {
     throw new AppError(400, UNREADABLE);
   }

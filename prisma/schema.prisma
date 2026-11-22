@@ -472,6 +472,39 @@ model SubOrder {
   @@index([checkoutId])
 }
 
+enum BannerMediaType {
+  IMAGE
+  GIF
+  SVG // reserved: SVG uploads are rejected today
+  VIDEO // reserved: video is not supported yet
+}
+
+// Home page billboard slides, managed by admins. The media are Image rows (processed WebP in
+// uploads/media, served by /media like every other public image); the URLs are built from the key.
+model Banner {
+  id            String          @id @default(uuid())
+  titleEn       String // also the alt text
+  titleBn       String?
+  subtitleEn    String?
+  subtitleBn    String?
+  mediaType     BannerMediaType
+  imageId       String          @unique
+  image         Image           @relation("HomeBanner", fields: [imageId], references: [id])
+  mobileImageId String?         @unique
+  mobileImage   Image?          @relation("HomeBannerMobile", fields: [mobileImageId], references: [id], onDelete: SetNull)
+  linkUrl       String? // internal path ("/markets/x") or an https URL
+  ctaLabelEn    String?
+  ctaLabelBn    String?
+  sortOrder     Int             @default(0)
+  isActive      Boolean         @default(true)
+  startsAt      DateTime?
+  endsAt        DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
 // One row per status change, for the customer's tracking timeline.
 model OrderStatusEvent {
   id         String      @id @default(uuid())
@@ -683,6 +716,8 @@ model Image {
   product   Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
   shopLogo   Shop?    @relation("ShopLogo")
   shopBanner Shop?    @relation("ShopBanner")
+  homeBanner       Banner? @relation("HomeBanner")
+  homeBannerMobile Banner? @relation("HomeBannerMobile")
   @@index([productId, sortOrder])
 }
 

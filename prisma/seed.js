@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import sharp from 'sharp';
 import { processImage } from '../src/lib/images.js';
 import { stageImage, removeImage, imageUrls } from '../src/lib/storage.js';
 
@@ -44,12 +45,60 @@ async function publishPhoto(id) {
   }
 }
 
+// ---------- seed home banners ----------
+// Drawn locally (no network): an SVG is rendered to PNG by sharp, then goes through the normal
+// pipeline like an upload. The SVG never leaves this script.
+const BANNER_DEFS = [
+  {
+    titleEn: 'Verified shops, real prices',
+    titleBn: 'যাচাই করা দোকান, আসল দাম',
+    subtitleEn: 'Every shop on Vendors Hub is a real, visited shop',
+    linkUrl: '/shops',
+    ctaLabelEn: 'Browse shops',
+    colors: ['#0f4c81', '#1fa2a6'],
+  },
+  {
+    titleEn: 'Jamuna Future Park',
+    subtitleEn: 'Find what you need before you go',
+    linkUrl: '/markets/jamuna-future-park',
+    ctaLabelEn: 'Open market',
+    colors: ['#7a1f5c', '#e0703a'],
+  },
+];
+
+async function seedBanners() {
+  let made = 0;
+  for (const [i, def] of BANNER_DEFS.entries()) {
+    const { colors, ...fields } = def;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="600"><defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="${colors[0]}"/><stop offset="1" stop-color="${colors[1]}"/></linearGradient></defs><rect width="1800" height="600" fill="url(#g)"/><circle cx="1500" cy="300" r="220" fill="#ffffff" fill-opacity="0.12"/></svg>`;
+    try {
+      const png = await sharp(Buffer.from(svg)).png().toBuffer();
+      const processed = await processImage(png, 'HOME_BANNER');
+      const staged = await stageImage(processed);
+      await staged.commit();
+      await prisma.banner.create({
+        data: {
+          ...fields,
+          mediaType: 'IMAGE',
+          sortOrder: i,
+          image: { create: { key: staged.key, width: processed.width, height: processed.height, purpose: 'HOME_BANNER', ownerId: null } },
+        },
+      });
+      made++;
+    } catch (err) {
+      console.warn(`Seed banner ${i + 1} skipped: ${err.message}`);
+    }
+  }
+  return made;
+}
+
 const slugify = (s) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
 // Children first, parents last (foreign keys point child -> parent)
 async function clean() {
   await prisma.$transaction([
+        prisma.banner.deleteMany(), // before image: a banner points at its Image rows
         prisma.idempotencyKey.deleteMany(),
         prisma.emailVerificationToken.deleteMany(),
         prisma.image.deleteMany(),
@@ -94,7 +143,10 @@ async function clean() {
 async function main() {
   console.log('Seeding...');
   // the files of the last run's seed photos are deleted once their database rows are gone
-  const oldPhotos = await prisma.image.findMany({ where: SEED_PHOTO, select: { key: true } });
+  const oldPhotos = await prisma.image.findMany({
+    where: { ownerId: null, purpose: { in: [SEED_PHOTO.purpose, 'HOME_BANNER'] } },
+    select: { key: true },
+  });
   await clean();
   await Promise.all(oldPhotos.map((p) => removeImage(p.key).catch(() => {})));
 
@@ -343,6 +395,7 @@ async function main() {
     shops: await prisma.shop.count(),
     products: await prisma.product.count(),
     listings: await prisma.shopListing.count(),
+    banners: await seedBanners(),
   };
   console.log('Seed finished:', counts);
   console.log('Logins (password Password123!): admin@, owner1@, owner2@, owner3@, customer@vendorshub.test');

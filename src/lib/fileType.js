@@ -9,6 +9,11 @@ const SIGNATURES = [
     ext: 'webp',
     test: (b) => b.length >= 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP',
   },
+  {
+    mime: 'image/gif',
+    ext: 'gif',
+    test: (b) => b.length >= 6 && ['GIF87a', 'GIF89a'].includes(b.toString('ascii', 0, 6)),
+  },
   { mime: 'application/pdf', ext: 'pdf', test: (b) => b.length >= 5 && b.toString('ascii', 0, 5) === '%PDF-' },
 ];
 

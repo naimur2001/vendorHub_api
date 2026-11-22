@@ -1,0 +1,400 @@
+# Home page billboard banners: public list + admin management.
+# Media: JPG, PNG, WebP or GIF (max 5 MB each), re-encoded to WebP (GIF -> animated WebP).
+# SVG and video are rejected for now (mediaType SVG / VIDEO are reserved).
+paths:
+  /api/v1/banners:
+    get:
+      tags: [Banners]
+      operationId: listBanners
+      summary: Live home page banners (no login)
+      description: |
+        Active banners whose schedule includes now (startsAt null or <= now, endsAt null or > now),
+        ordered by sortOrder then createdAt, at most 10. Sent with `Cache-Control: public, max-age=60`.
+      responses:
+        '200':
+          description: The banners to show, in order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    maxItems: 10
+                    items:
+                      $ref: '#/components/schemas/Banner'
+  /api/v1/admin/banners:
+    get:
+      tags: [Banners]
+      operationId: adminListBanners
+      summary: All banners, including inactive, scheduled and expired ones (admin)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every banner, ordered by sortOrder then createdAt.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminBanner'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Banners]
+      operationId: adminCreateBanner
+      summary: Create a banner (admin, multipart)
+      description: |
+        Send the image in `media` (required) and an optional phone version in `mobileMedia`.
+        Recommended size 3:1, e.g. 1800 x 600 (at least 900 x 300; phone version at least 400 x 300).
+        A new banner goes to the end unless sortOrder is given. Writes an audit log entry.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/BannerFields'
+                - type: object
+                  required: [media, titleEn]
+                  properties:
+                    media:
+                      type: string
+                      format: binary
+                    mobileMedia:
+                      type: string
+                      format: binary
+      responses:
+        '201':
+          description: The new banner.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminBannerResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: A file is larger than 5 MB.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The image is too small.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/admin/banners/reorder:
+    patch:
+      tags: [Banners]
+      operationId: adminReorderBanners
+      summary: Set the order of banners (admin)
+      description: Sets sortOrder 0, 1, 2 ... in the given order; banners not listed keep theirs. Writes an audit log entry.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  uniqueItems: true
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: All banners in the new order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminBanner'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/banners/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [Banners]
+      operationId: adminUpdateBanner
+      summary: Update a banner's fields and/or replace its media (admin)
+      description: |
+        JSON or multipart. In multipart, a new `media` or `mobileMedia` replaces the old file (the old
+        file is deleted). An empty string clears an optional field. `removeMobileMedia: true` removes
+        the phone version. Writes an audit log entry.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/BannerFields'
+                - $ref: '#/components/schemas/BannerUpdateExtra'
+          multipart/form-data:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/BannerFields'
+                - $ref: '#/components/schemas/BannerUpdateExtra'
+                - type: object
+                  properties:
+                    media:
+                      type: string
+                      format: binary
+                    mobileMedia:
+                      type: string
+                      format: binary
+      responses:
+        '200':
+          description: The updated banner.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminBannerResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          description: A file is larger than 5 MB.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The image is too small.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    delete:
+      tags: [Banners]
+      operationId: adminDeleteBanner
+      summary: Delete a banner and its files (admin)
+      description: Writes an audit log entry.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [message]
+                    properties:
+                      message:
+                        type: string
+                        example: Banner deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  schemas:
+    BannerMedia:
+      type: object
+      required: [url, thumbUrl, width, height]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Processed WebP (animated for GIF banners).
+        thumbUrl:
+          type: string
+          format: uri
+          description: Smaller still WebP (first frame for GIF banners).
+        width:
+          type: integer
+        height:
+          type: integer
+    Banner:
+      type: object
+      required: [id, titleEn, titleBn, subtitleEn, subtitleBn, mediaType, media, mobileMedia, linkUrl, ctaLabelEn, ctaLabelBn, sortOrder]
+      properties:
+        id:
+          type: string
+          format: uuid
+        titleEn:
+          type: string
+          description: Also the alt text of the image.
+        titleBn:
+          type: string
+          nullable: true
+        subtitleEn:
+          type: string
+          nullable: true
+        subtitleBn:
+          type: string
+          nullable: true
+        mediaType:
+          type: string
+          enum: [IMAGE, GIF, SVG, VIDEO]
+          description: Only IMAGE and GIF are produced today; SVG and VIDEO are reserved.
+        media:
+          $ref: '#/components/schemas/BannerMedia'
+        mobileMedia:
+          allOf:
+            - $ref: '#/components/schemas/BannerMedia'
+          nullable: true
+          description: Optional phone version; use media when null.
+        linkUrl:
+          type: string
+          nullable: true
+          description: An internal path ("/markets/x") or an https URL.
+        ctaLabelEn:
+          type: string
+          nullable: true
+        ctaLabelBn:
+          type: string
+          nullable: true
+        sortOrder:
+          type: integer
+    AdminBanner:
+      allOf:
+        - $ref: '#/components/schemas/Banner'
+        - type: object
+          required: [isActive, startsAt, endsAt, liveNow, createdAt, updatedAt]
+          properties:
+            isActive:
+              type: boolean
+            startsAt:
+              type: string
+              format: date-time
+              nullable: true
+            endsAt:
+              type: string
+              format: date-time
+              nullable: true
+            liveNow:
+              type: boolean
+              description: Active and inside its schedule right now (what GET /banners would show).
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+    AdminBannerResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/AdminBanner'
+    BannerFields:
+      type: object
+      properties:
+        titleEn:
+          type: string
+          minLength: 1
+          maxLength: 120
+        titleBn:
+          type: string
+          maxLength: 120
+          nullable: true
+        subtitleEn:
+          type: string
+          maxLength: 200
+          nullable: true
+        subtitleBn:
+          type: string
+          maxLength: 200
+          nullable: true
+        linkUrl:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: 'Starts with "/" (not "//") or is an https:// URL. javascript:, data: and http: links are refused.'
+        ctaLabelEn:
+          type: string
+          maxLength: 40
+          nullable: true
+        ctaLabelBn:
+          type: string
+          maxLength: 40
+          nullable: true
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        isActive:
+          type: boolean
+        startsAt:
+          type: string
+          format: date-time
+          nullable: true
+        endsAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Must be after startsAt.
+    BannerUpdateExtra:
+      type: object
+      properties:
+        removeMobileMedia:
+          type: boolean
+          description: true removes the phone version.
