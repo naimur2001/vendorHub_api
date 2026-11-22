@@ -24,7 +24,7 @@ export async function updateProfile(userId, input) {
     if (taken) throw new AppError(409, 'This phone number is already used by another account');
   }
   const user = await prisma.user.update({ where: { id: userId }, data: input });
-  return publicUser(user);
+  return { ...publicUser(user), smsOptOut: user.smsOptOut }; // the caller's own setting
 }
 
 // ---------- my addresses ----------

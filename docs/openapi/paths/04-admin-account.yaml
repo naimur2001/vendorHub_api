@@ -789,6 +789,9 @@ paths:
                   type: string
                   format: uri
                   nullable: true
+                smsOptOut:
+                  type: boolean
+                  description: true = no order status SMS / WhatsApp.
       responses:
         '200':
           description: My updated profile.

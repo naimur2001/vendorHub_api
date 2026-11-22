@@ -7,6 +7,7 @@ import { notifyStatusChange, notifyCustomerCancel } from '../notifications/notif
 import { unreadCounts } from '../orderChat/orderChat.service.js';
 import { releasePromotions } from '../promotions/promotions.service.js';
 import { rewardReferralIfDue, notifyReferralReward } from '../referrals/referrals.service.js';
+import { refundPayments } from '../payments/payments.service.js';
 
 // Which statuses an order may move to from each status.
 const TRANSITIONS = {
@@ -90,6 +91,7 @@ async function cancelEffects(tx, order) {
   await restock(tx, order.id);
   await releasePromotions(tx, order.id); // flash-deal units and the coupon use come back
   if (order.paymentMethod === 'ONLINE' && order.paymentStatus === 'PAID') {
+    await refundPayments(await tx.payment.findMany({ where: { subOrderId: order.id, status: 'PAID' } })); // the provider first
     await tx.subOrder.update({ where: { id: order.id }, data: { paymentStatus: 'REFUNDED' } });
     await tx.payment.updateMany({
       where: { subOrderId: order.id, status: 'PAID' },

@@ -1,0 +1,214 @@
+# Provider-neutral adapters (mock mode until real accounts exist).
+# Messaging (MESSAGING_MODE = mock | sslwireless | twilio-whatsapp): the customer gets an SMS (or
+#   WhatsApp) when an order becomes CONFIRMED, READY_FOR_PICKUP, OUT_FOR_DELIVERY or COMPLETED,
+#   if they have a phone and smsOptOut is false (PATCH /users/me { smsOptOut }). mock writes only to
+#   the message log. Phone numbers are never logged in full (017******78).
+# Payments (PAYMENT_MODE = mock | bkash | nagad) behind ONLINE orders: create-payment, a signed
+#   callback (idempotent), and refunds when a paid order is cancelled. POST /orders/{id}/pay-mock
+#   keeps working. bKash and Nagad are not connected yet (501); their config keys are listed in
+#   src/config/env.js and the server refuses to start in those modes without them.
+paths:
+  /api/v1/orders/{orderId}/payments:
+    post:
+      tags: [Payments]
+      operationId: createOrderPayment
+      summary: Start (or resume) paying one of my ONLINE orders
+      description: Idempotent while the payment is pending (the same paymentId and providerRef come back). Open redirectUrl to pay.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '201':
+          description: The payment to complete.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [paymentId, provider, amount, providerRef, redirectUrl]
+                    properties:
+                      paymentId:
+                        type: string
+                        format: uuid
+                      provider:
+                        type: string
+                        enum: [mock, bkash, nagad]
+                      amount:
+                        type: integer
+                      providerRef:
+                        type: string
+                      redirectUrl:
+                        type: string
+                        nullable: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '501':
+          description: The configured provider is not connected yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/payments/callback/{provider}:
+    post:
+      tags: [Payments]
+      operationId: paymentCallback
+      summary: The gateway's server-to-server callback (no login; the signature is the proof)
+      description: |
+        Only the active provider is accepted (else 404). mock: header X-Mock-Signature =
+        HMAC-SHA256(PAYMENT_MOCK_SECRET, "paymentId|providerRef|status|amount") in hex.
+        A bad signature is 401, a wrong amount 400. A repeated callback changes nothing
+        (duplicate true) and answers with the current status.
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [mock, bkash, nagad]
+        - name: X-Mock-Signature
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [paymentId, providerRef, status, amount]
+              properties:
+                paymentId:
+                  type: string
+                  format: uuid
+                providerRef:
+                  type: string
+                status:
+                  type: string
+                  enum: [PAID, FAILED]
+                amount:
+                  type: integer
+      responses:
+        '200':
+          description: Received.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [received, duplicate, status]
+                    properties:
+                      received:
+                        type: boolean
+                      duplicate:
+                        type: boolean
+                      status:
+                        $ref: '#/components/schemas/PaymentStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/message-log:
+    get:
+      tags: [Admin]
+      operationId: adminMessageLog
+      summary: The latest outgoing SMS / WhatsApp messages (phones masked) and the adapter modes
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: orderId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, channel, provider, toMasked, template, body, status, error, subOrderId, createdAt]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        channel:
+                          type: string
+                          enum: [SMS, WHATSAPP]
+                        provider:
+                          type: string
+                        toMasked:
+                          type: string
+                          example: 017******78
+                        template:
+                          type: string
+                          example: ORDER_CONFIRMED
+                        body:
+                          type: string
+                        status:
+                          type: string
+                          enum: [SENT, FAILED]
+                        error:
+                          type: string
+                          nullable: true
+                        subOrderId:
+                          type: string
+                          format: uuid
+                          nullable: true
+                        createdAt:
+                          type: string
+                          format: date-time
+                  meta:
+                    type: object
+                    required: [messagingMode, paymentMode]
+                    properties:
+                      messagingMode:
+                        type: string
+                        enum: [mock, sslwireless, twilio-whatsapp]
+                      paymentMode:
+                        type: string
+                        enum: [mock, bkash, nagad]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'

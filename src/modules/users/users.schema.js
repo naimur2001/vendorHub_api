@@ -8,6 +8,7 @@ export const updateProfileSchema = z
     name: z.string().trim().min(2).max(80).optional(),
     phone: phone.nullable().optional(),
     avatarUrl: z.string().url().max(500).nullable().optional(),
+    smsOptOut: z.boolean().optional(), // true = no order status SMS / WhatsApp
   })
   .refine((o) => Object.keys(o).length > 0, { message: 'Provide at least one field to update' });
 

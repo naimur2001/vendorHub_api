@@ -97,8 +97,11 @@ components:
   schemas:
     User:
       type: object
-      required: [id, name, email, phone, role, avatarUrl, emailVerified, deletionScheduledFor]
+      required: [id, name, email, phone, role, avatarUrl, emailVerified, deletionScheduledFor, smsOptOut]
       properties:
+        smsOptOut:
+          type: boolean
+          description: true = no order status SMS / WhatsApp (PATCH /users/me).
         id:
           type: string
           format: uuid

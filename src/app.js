@@ -41,6 +41,7 @@ import shopToolsRoutes from './modules/shopTools/shopTools.routes.js';
 import promotionRoutes from './modules/promotions/promotions.routes.js';
 import moderationRoutes from './modules/moderation/moderation.routes.js';
 import referralRoutes from './modules/referrals/referrals.routes.js';
+import paymentRoutes from './modules/payments/payments.routes.js';
 export const app = express();
 
 // Behind Nginx or a load balancer: trust its X-Forwarded-For so rate limiting sees real client IPs
@@ -131,6 +132,7 @@ app.use('/api/v1', shopToolsRoutes);
 app.use('/api/v1', promotionRoutes);
 app.use('/api/v1', moderationRoutes);
 app.use('/api/v1', referralRoutes);
+app.use('/api/v1', paymentRoutes);
 app.use('/api/v1', userRoutes);
 app.use('/api/v1', staffRoutes);
 app.use('/api/v1', uploadRoutes);

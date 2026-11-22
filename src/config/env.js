@@ -60,8 +60,40 @@ const schema = z
         // DEVELOPMENT/TEST ONLY: new users with these email domains are verified at once (comma list).
     AUTO_VERIFY_EMAIL_DOMAINS: z.string().optional(),
     ACCOUNT_DELETION_GRACE_DAYS: z.coerce.number().int().min(7).max(90).default(30),
+    // ---- messaging (order status SMS / WhatsApp): mock = written to the MessageLog table only ----
+    MESSAGING_MODE: z.enum(['mock', 'sslwireless', 'twilio-whatsapp']).default('mock'),
+    SSLWIRELESS_API_TOKEN: z.string().optional(), // TODO when the account exists
+    SSLWIRELESS_SID: z.string().optional(),
+    SSLWIRELESS_BASE_URL: z.string().url().default('https://smsplus.sslwireless.com'),
+    TWILIO_ACCOUNT_SID: z.string().optional(), // TODO when the account exists
+    TWILIO_AUTH_TOKEN: z.string().optional(),
+    TWILIO_WHATSAPP_FROM: z.string().optional(), // e.g. "whatsapp:+14155238886"
+    // ---- payments behind ONLINE orders: mock = no gateway (pay-mock and signed mock callbacks) ----
+    PAYMENT_MODE: z.enum(['mock', 'bkash', 'nagad']).default('mock'),
+    PAYMENT_MOCK_SECRET: z.string().min(16).optional(), // signs mock callbacks; unset = derived from JWT_ACCESS_SECRET
+    BKASH_BASE_URL: z.string().url().default('https://tokenized.sandbox.bka.sh/v1.2.0-beta'), // TODO real values
+    BKASH_APP_KEY: z.string().optional(),
+    BKASH_APP_SECRET: z.string().optional(),
+    BKASH_USERNAME: z.string().optional(),
+    BKASH_PASSWORD: z.string().optional(),
+    NAGAD_BASE_URL: z.string().url().default('https://sandbox.mynagad.com:10080/remote-payment-gateway-1.0'), // TODO
+    NAGAD_MERCHANT_ID: z.string().optional(),
+    NAGAD_MERCHANT_PRIVATE_KEY: z.string().optional(),
+    NAGAD_PUBLIC_KEY: z.string().optional(),
   })
   .superRefine((cfg, ctx) => {
+    // a real provider needs its keys: fail at startup, not at the first SMS or payment
+    const need = {
+      sslwireless: ['SSLWIRELESS_API_TOKEN', 'SSLWIRELESS_SID'],
+      'twilio-whatsapp': ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_FROM'],
+      bkash: ['BKASH_APP_KEY', 'BKASH_APP_SECRET', 'BKASH_USERNAME', 'BKASH_PASSWORD'],
+      nagad: ['NAGAD_MERCHANT_ID', 'NAGAD_MERCHANT_PRIVATE_KEY', 'NAGAD_PUBLIC_KEY'],
+    };
+    for (const mode of [cfg.MESSAGING_MODE, cfg.PAYMENT_MODE]) {
+      for (const key of need[mode] ?? []) {
+        if (!cfg[key]) ctx.addIssue({ code: 'custom', path: [key], message: `Required when using ${mode}` });
+      }
+    }
         if (cfg.NODE_ENV === 'production' && cfg.AUTO_VERIFY_EMAIL_DOMAINS) {
       ctx.addIssue({ code: 'custom', path: ['AUTO_VERIFY_EMAIL_DOMAINS'], message: 'Not allowed in production' });
     }

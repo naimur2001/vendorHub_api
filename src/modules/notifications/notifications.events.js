@@ -2,6 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
 import { notify } from '../../lib/notify.js';
 import { PRICE_ALERT_COOLDOWN_MS } from '../../config/limits.js';
+import { sendOrderStatusMessage } from '../../lib/messaging.js';
 
 const STATUS_TEXT = {
   CONFIRMED: 'was confirmed by the shop',
@@ -156,6 +157,7 @@ export async function notifyStatusChange(order, status, reason) {
   } catch (err) {
     logger.error(err, 'could not send the order status notification');
   }
+  await sendOrderStatusMessage(order, status); // SMS / WhatsApp (MESSAGING_MODE); never throws
 }
 
 // After the customer cancels: tell that shop's team.

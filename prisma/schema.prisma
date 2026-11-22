@@ -140,6 +140,7 @@ model User {
   referralCode        String?        @unique // customers: shared with friends; made on first need
   devices             UserDevice[]
   creditEntries       CreditLedger[]
+  smsOptOut           Boolean        @default(false) // true = no order status SMS / WhatsApp
   returnRequests      ReturnRequest[]
   returnMessages      ReturnMessage[]
 }
@@ -732,6 +733,35 @@ model ContentFlag {
   @@index([reporterId, createdAt])
 }
 
+enum MessageChannel {
+  SMS
+  WHATSAPP
+}
+
+enum MessageLogStatus {
+  SENT
+  FAILED
+}
+
+// Every outgoing SMS / WhatsApp (mock mode writes ONLY here). The phone is never stored in full:
+// toMasked shows the first 3 and last 2 digits.
+model MessageLog {
+  id        String           @id @default(uuid())
+  userId    String?
+  channel   MessageChannel
+  provider  String // mock | sslwireless | twilio-whatsapp
+  toMasked  String
+  template  String // e.g. ORDER_CONFIRMED
+  body      String
+  status    MessageLogStatus
+  error     String? // a fixed text, never the provider's raw answer
+  subOrderId String?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
 enum MessageSenderRole {
   CUSTOMER
   SHOP
@@ -836,6 +866,7 @@ model Payment {
   amount      Int
   status      PaymentStatus @default(PENDING)
   rawPayload  Json?
+  callbackAt  DateTime? // when the gateway confirmed it (signed callback)
   createdAt   DateTime      @default(now())
   subOrder    SubOrder      @relation(fields: [subOrderId], references: [id])
 

@@ -21,6 +21,7 @@ const publicUser = (u) => ({
   avatarUrl: u.avatarUrl,
   emailVerified: Boolean(u.emailVerifiedAt),
   deletionScheduledFor: u.deletionScheduledFor ? u.deletionScheduledFor.toISOString() : null,
+  smsOptOut: Boolean(u.smsOptOut), // order status SMS / WhatsApp switched off
 });
 
 async function issueTokens(user) {
