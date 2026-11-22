@@ -1,0 +1,283 @@
+# Wishlist (saved listings) with price-drop notifications. Customers only.
+# A price drop on a saved listing creates a notification of type WISHLIST_PRICE_DROP
+# (see GET /notifications), at most once per item per 24 hours.
+paths:
+  /api/v1/wishlist:
+    get:
+      tags: [Wishlist]
+      operationId: listWishlist
+      summary: My saved listings, newest first
+      description: Listings that are hidden or removed (or whose shop or product is) are left out.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: One page of saved listings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [items, pagination]
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/WishlistItem'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Wishlist]
+      operationId: addToWishlist
+      summary: Save a listing (idempotent)
+      description: 201 when saved now, 200 when it was already saved. The price is read on the server.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [listingId]
+              properties:
+                listingId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Already saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WishlistItemResponse'
+        '201':
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WishlistItemResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 'At most 200 saved items. error.details.code is WISHLIST_LIMIT.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WishlistLimitError'
+  /api/v1/wishlist/ids:
+    get:
+      tags: [Wishlist]
+      operationId: listWishlistIds
+      summary: Only the ids of my saved listings (to fill the hearts)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The listing ids.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [listingIds, productIds]
+                    properties:
+                      listingIds:
+                        type: array
+                        maxItems: 200
+                        description: Saved listings (hearts on shop offers).
+                        items:
+                          type: string
+                          format: uuid
+                      productIds:
+                        type: array
+                        maxItems: 200
+                        description: The distinct products behind the saved listings (hearts on product cards).
+                        items:
+                          type: string
+                          format: uuid
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/wishlist/product/{productId}:
+    delete:
+      tags: [Wishlist]
+      operationId: removeProductFromWishlist
+      summary: Remove every saved listing of one product (idempotent)
+      description: For the heart on a product card. Only this user's rows; 204 also when nothing was saved.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Removed (also when nothing was saved).
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/wishlist/{listingId}:
+    delete:
+      tags: [Wishlist]
+      operationId: removeFromWishlist
+      summary: Remove a saved listing (idempotent)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: listingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Removed (also when it was not saved).
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  schemas:
+    WishlistItem:
+      type: object
+      required: [listingId, savedAt, priceAtSave, price, priceDropped, availability, product, shop]
+      properties:
+        listingId:
+          type: string
+          format: uuid
+        savedAt:
+          type: string
+          format: date-time
+        priceAtSave:
+          type: integer
+          description: The price (taka) when the customer saved it.
+        price:
+          type: integer
+          description: The current price (taka).
+        priceDropped:
+          type: boolean
+          description: price < priceAtSave
+        availability:
+          $ref: '#/components/schemas/Availability'
+        product:
+          type: object
+          required: [id, slug, title, msrp, image, thumbUrl]
+          properties:
+            id:
+              type: string
+              format: uuid
+            slug:
+              type: string
+            title:
+              type: string
+            msrp:
+              type: integer
+              nullable: true
+            image:
+              type: string
+              nullable: true
+            thumbUrl:
+              type: string
+              nullable: true
+        shop:
+          type: object
+          required: [id, name, slug, logoUrl, verificationLevel, market]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            slug:
+              type: string
+            logoUrl:
+              type: string
+              nullable: true
+            verificationLevel:
+              $ref: '#/components/schemas/VerificationLevel'
+            market:
+              type: object
+              nullable: true
+              required: [name, slug]
+              properties:
+                name:
+                  type: string
+                slug:
+                  type: string
+    WishlistItemResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/WishlistItem'
+    WishlistLimitError:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          required: [message, details]
+          properties:
+            message:
+              type: string
+              example: You can save at most 200 items. Remove one first.
+            details:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+                  enum: [WISHLIST_LIMIT]

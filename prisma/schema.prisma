@@ -135,6 +135,7 @@ model User {
   passwordResetTokens PasswordResetToken[]
   notifications       Notification[]
   fileUploads         FileUpload[]
+  wishlistItems       WishlistItem[]
   returnRequests      ReturnRequest[]
   returnMessages      ReturnMessage[]
 }
@@ -367,6 +368,7 @@ model ShopListing {
   bargains   Bargain[]
   cartItems  CartItem[]
   orderItems OrderItem[]
+  wishlistItems WishlistItem[]
 
   @@unique([shopId, productId])
   @@index([productId, price])
@@ -470,6 +472,24 @@ model SubOrder {
 
   @@index([shopId, status])
   @@index([checkoutId])
+}
+
+// A customer's saved listing. priceAtSave stays the price the customer saw (so priceDropped keeps
+// working); lastAlertPrice/lastAlertAt stop repeated price-drop notifications.
+model WishlistItem {
+  id             String      @id @default(uuid())
+  userId         String
+  listingId      String
+  priceAtSave    Int
+  lastAlertPrice Int?
+  lastAlertAt    DateTime?
+  createdAt      DateTime    @default(now())
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listing        ShopListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, listingId])
+  @@index([listingId])
+  @@index([userId, createdAt])
 }
 
 enum BannerPlacement {

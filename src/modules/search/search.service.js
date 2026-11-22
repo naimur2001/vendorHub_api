@@ -57,12 +57,14 @@ async function similarProducts(buffer) {
       WHERE i."productId" IS NOT NULL AND i.embedding IS NOT NULL
       GROUP BY i."productId"
     )
-    SELECT p.id, p.slug, p.title, p.images[1] AS image, l.lowest, l.shops,
+    SELECT p.id, p.slug, p.title, p.images[1] AS image, l.lowest, l.shops, l."bestListingId",
            COALESCE(photo.score, 0) AS "photoScore",
            COALESCE(1 - (p."titleEmbedding" <=> ${v}::vector), 0) AS "titleScore"
     FROM "Product" p
     JOIN LATERAL (
-      SELECT MIN(sl.price) AS lowest, COUNT(*)::int AS shops
+      SELECT MIN(sl.price) AS lowest, COUNT(*)::int AS shops,
+             -- the cheapest IN_STOCK listing, else the cheapest (the card's wishlist heart saves it)
+             (ARRAY_AGG(sl.id ORDER BY (sl.availability = 'IN_STOCK') DESC, sl.price ASC, sl.id ASC))[1] AS "bestListingId"
       FROM "ShopListing" sl
       JOIN "Shop" s ON s.id = sl."shopId"
       WHERE sl."productId" = p.id AND sl."isActive" = true AND s."isActive" = true
@@ -82,6 +84,7 @@ async function similarProducts(buffer) {
       image: r.image ?? null,
       thumbnail: r.image ? thumbFor(r.image) : null,
       lowestPrice: r.lowest,
+      bestListingId: r.bestListingId ?? null,
       shopCount: r.shops,
       match: photoScore >= titleScore ? 'photo' : 'title',
       score: Math.round(Math.max(photoScore, titleScore) * 1000) / 1000,

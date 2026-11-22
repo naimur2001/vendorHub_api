@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { assertShopAccess } from '../../lib/shopAccess.js';
+import { notifyPriceDrop } from '../notifications/notifications.events.js';
 
 export function deriveAvailability(stockQty) {
   if (stockQty === null || stockQty === undefined) return 'AVAILABLE';
@@ -66,11 +67,14 @@ export async function updateListing(user, shopId, listingId, input) {
   if (input.stockQty !== undefined && input.availability === undefined) {
     data.availability = deriveAvailability(input.stockQty);
   }
-  return prisma.shopListing.update({
+  const updated = await prisma.shopListing.update({
     where: { id: listingId },
     data,
     include: { product: productSelect },
   });
+  // after the update: customers who saved this listing hear about a lower price (never throws)
+  if (updated.price < listing.price) await notifyPriceDrop(listingId, updated.price);
+  return updated;
 }
 
 // Soft delete: orders reference listings, so we deactivate instead of deleting.

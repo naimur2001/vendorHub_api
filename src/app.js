@@ -35,6 +35,7 @@ import mediaRoutes from './modules/media/media.routes.js';
 import shopProductRoutes from './modules/shopProducts/shopProducts.routes.js';
 import searchRoutes from './modules/search/search.routes.js';
 import bannerRoutes from './modules/banners/banners.routes.js';
+import wishlistRoutes from './modules/wishlist/wishlist.routes.js';
 export const app = express();
 
 // Behind Nginx or a load balancer: trust its X-Forwarded-For so rate limiting sees real client IPs
@@ -109,6 +110,7 @@ app.use('/api/v1', catalogRoutes);
 app.use('/api/v1', shopRoutes);
 app.use('/api/v1', listingRoutes);
 app.use('/api/v1/cart', cartRoutes);
+app.use('/api/v1/wishlist', wishlistRoutes);
 app.use('/api/v1', checkoutRoutes);
 app.use('/api/v1', bargainRoutes);
 app.use('/api/v1', verificationRoutes);

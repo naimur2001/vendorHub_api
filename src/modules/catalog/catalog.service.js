@@ -96,7 +96,9 @@ export async function listProducts(query) {
              MAX(CASE l.availability
                    WHEN 'IN_STOCK' THEN 4 WHEN 'AVAILABLE' THEN 3 WHEN 'LIMITED' THEN 2 ELSE 1
                  END) AS "availabilityRank",
-             BOOL_OR(l."bargainEnabled") AS "bargainAvailable"
+             BOOL_OR(l."bargainEnabled") AS "bargainAvailable",
+             -- the listing a card's wishlist heart saves: the cheapest IN_STOCK one, else the cheapest
+             (ARRAY_AGG(l.id ORDER BY (l.availability = 'IN_STOCK') DESC, l.price ASC, l.id ASC))[1] AS "bestListingId"
       FROM "ShopListing" l
       JOIN fp ON fp.id = l."productId"
       JOIN "Shop" s ON s.id = l."shopId"
@@ -109,7 +111,7 @@ export async function listProducts(query) {
   const rows = await prisma.$queryRaw`
     ${base}
     SELECT fp.id, m."lowestPrice", m."highestPrice", m."shopCount", m."availabilityRank", m."bargainAvailable",
-           COUNT(*) OVER() AS total
+           m."bestListingId", COUNT(*) OVER() AS total
     FROM fp
     JOIN m ON m."productId" = fp.id
     ORDER BY ${ORDER_BY[sort]}
@@ -147,6 +149,7 @@ export async function listProducts(query) {
       thumbnail: p.images[0] ? thumbFor(p.images[0]) : null,
       msrp: p.msrp,
       lowestPrice: r.lowestPrice,
+      bestListingId: r.bestListingId ?? null,
       highestPrice: r.highestPrice,
       shopCount: r.shopCount,
       availability: RANK_TO_AVAILABILITY[r.availabilityRank],

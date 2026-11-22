@@ -64,8 +64,13 @@ paths:
                         description: Most similar first (best of photo similarity and title match).
                         items:
                           type: object
-                          required: [id, slug, title, image, thumbnail, lowestPrice, shopCount, match, score]
+                          required: [id, slug, title, image, thumbnail, lowestPrice, bestListingId, shopCount, match, score]
                           properties:
+                            bestListingId:
+                              type: string
+                              format: uuid
+                              nullable: true
+                              description: The cheapest IN_STOCK listing, else the cheapest (what the wishlist heart saves).
                             id:
                               type: string
                               format: uuid

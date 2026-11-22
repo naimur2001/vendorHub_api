@@ -635,7 +635,15 @@ components:
           type: string
     ProductCard:
       type: object
+      required: [bestListingId]
       properties:
+        bestListingId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            The listing the card's wishlist heart saves: the cheapest IN_STOCK listing (among the listings
+            that match the filters), else the cheapest one; null when there is none.
         id:
           type: string
           format: uuid

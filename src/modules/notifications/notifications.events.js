@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
 import { notify } from '../../lib/notify.js';
+import { PRICE_ALERT_COOLDOWN_MS } from '../../config/limits.js';
 
 const STATUS_TEXT = {
   CONFIRMED: 'was confirmed by the shop',
@@ -31,6 +32,44 @@ export async function shopTeamIds(shopId) {
 async function adminIds() {
   const admins = await prisma.user.findMany({ where: { role: 'ADMIN', isActive: true }, select: { id: true } });
   return admins.map((a) => a.id);
+}
+
+// ---------- wishlist ----------
+
+// After a listing's price went DOWN: tell each customer who saved it, at most once per item per
+// PRICE_ALERT_COOLDOWN_MS, and only when the price is below the last price they were told about
+// (or the price they saved it at). Each item is claimed with a guarded update first, so two price
+// changes at the same moment cannot send the same alert twice.
+export async function notifyPriceDrop(listingId, newPrice) {
+  try {
+    const listing = await prisma.shopListing.findFirst({
+      where: { id: listingId, isActive: true, shop: { isActive: true }, product: { isActive: true } },
+      select: { product: { select: { title: true, slug: true } }, shop: { select: { name: true, slug: true } } },
+    });
+    if (!listing) return;
+    const since = new Date(Date.now() - PRICE_ALERT_COOLDOWN_MS);
+    const items = await prisma.wishlistItem.findMany({
+      where: { listingId, OR: [{ lastAlertAt: null }, { lastAlertAt: { lt: since } }] },
+      select: { id: true, userId: true, priceAtSave: true, lastAlertPrice: true, lastAlertAt: true },
+    });
+    for (const item of items) {
+      const before = item.lastAlertPrice ?? item.priceAtSave;
+      if (newPrice >= before) continue;
+      const claimed = await prisma.wishlistItem.updateMany({
+        where: { id: item.id, lastAlertAt: item.lastAlertAt },
+        data: { lastAlertPrice: newPrice, lastAlertAt: new Date() },
+      });
+      if (claimed.count !== 1) continue;
+      await notify([item.userId], {
+        type: 'WISHLIST_PRICE_DROP',
+        title: `Price dropped on ${listing.product.title}`,
+        body: `Now ${newPrice} taka at ${listing.shop.name} (was ${before} taka).`,
+        data: { listingId, productSlug: listing.product.slug, shopSlug: listing.shop.slug, price: newPrice, previousPrice: before },
+      });
+    }
+  } catch (err) {
+    logger.error(err, 'could not send price-drop notifications');
+  }
 }
 
 // ---------- orders ----------
