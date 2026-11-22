@@ -64,23 +64,34 @@ const BANNER_DEFS = [
     ctaLabelEn: 'Open market',
     colors: ['#7a1f5c', '#e0703a'],
   },
+  {
+    titleEn: 'Bargain with the shop',
+    subtitleEn: 'Make an offer on items marked Bargain',
+    linkUrl: '/products?bargainOnly=true',
+    ctaLabelEn: 'See offers',
+    colors: ['#1d5c3a', '#c9a227'],
+    placement: 'SIDE_AD',
+    size: [600, 900], // tall side advertisement
+  },
 ];
 
 async function seedBanners() {
   let made = 0;
   for (const [i, def] of BANNER_DEFS.entries()) {
-    const { colors, ...fields } = def;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="600"><defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="${colors[0]}"/><stop offset="1" stop-color="${colors[1]}"/></linearGradient></defs><rect width="1800" height="600" fill="url(#g)"/><circle cx="1500" cy="300" r="220" fill="#ffffff" fill-opacity="0.12"/></svg>`;
+    const { colors, size = [1800, 600], placement = 'HERO', ...fields } = def;
+    const [w, h] = size;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="${colors[0]}"/><stop offset="1" stop-color="${colors[1]}"/></linearGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/><circle cx="${Math.round(w * 0.8)}" cy="${Math.round(h / 2)}" r="${Math.round(Math.min(w, h) * 0.36)}" fill="#ffffff" fill-opacity="0.12"/></svg>`;
     try {
       const png = await sharp(Buffer.from(svg)).png().toBuffer();
-      const processed = await processImage(png, 'HOME_BANNER');
+      const processed = await processImage(png, placement === 'SIDE_AD' ? 'SIDE_AD' : 'HOME_BANNER');
       const staged = await stageImage(processed);
       await staged.commit();
       await prisma.banner.create({
         data: {
           ...fields,
+          placement,
           mediaType: 'IMAGE',
-          sortOrder: i,
+          sortOrder: placement === 'SIDE_AD' ? 0 : i,
           image: { create: { key: staged.key, width: processed.width, height: processed.height, purpose: 'HOME_BANNER', ownerId: null } },
         },
       });

@@ -204,6 +204,55 @@ $r = Call 'PATCH' "/admin/banners/$($mob.id)" $admin @{ removeMobileMedia = $tru
 Check 'remove phone version' $r.json.data.mobileMedia $null
 Check 'phone file deleted' (Test-Path (FileOf $mob.mobileMedia.url)) $false
 
+# ---- 7b. fit ----
+Check 'fit defaults to COVER' $live.fit 'COVER'
+Check 'public list has fit' (@((Call 'GET' '/banners' $null $null).json.data)[0].fit -in @('COVER', 'CONTAIN')) $true
+$r = NewBanner @{ titleEn = 'Test contain'; fit = 'CONTAIN' } $null
+Check 'create with fit CONTAIN' $r.json.data.fit 'CONTAIN'
+$contain = $r.json.data.id
+if ($contain) { $made += $contain }
+$r = Call 'PATCH' "/admin/banners/$($live.id)" $admin @{ fit = 'CONTAIN' }
+Check 'update fit (JSON)' $r.json.data.fit 'CONTAIN'
+$r = Send 'PATCH' "/admin/banners/$($live.id)" $admin @() @{ fit = 'COVER' }
+Check 'update fit (multipart)' $r.json.data.fit 'COVER'
+Check 'bad fit -> 400' (Call 'PATCH' "/admin/banners/$($live.id)" $admin @{ fit = 'STRETCH' }).status 400
+Check 'admin list has fit' (@((Call 'GET' '/admin/banners' $admin $null).json.data | Where-Object { $_.id -eq $live.id })[0].fit) 'COVER'
+
+# ---- 7c. placement: the side advertisement ----
+Check 'placement defaults to HERO' $live.placement 'HERO'
+Check 'too small for SIDE_AD -> 422' (NewBanner @{ titleEn = 'x'; placement = 'SIDE_AD' } 'media=side-small.png;type=image/png').status 422
+$r = NewBanner @{ titleEn = 'Test side'; placement = 'SIDE_AD' } 'media=side.png;type=image/png'
+Check 'create SIDE_AD' $r.status 201
+$side = $r.json.data; if ($side.id) { $made += $side.id }
+Check 'SIDE_AD placement returned' $side.placement 'SIDE_AD'
+Check 'SIDE_AD keeps the tall size' "$($side.media.width)x$($side.media.height)" '600x900'
+Check 'SIDE_AD goes after the seeded side ad' $side.sortOrder 1
+Check 'bad placement -> 400' (NewBanner @{ titleEn = 'x'; placement = 'POPUP' } $null).status 400
+
+$heroIds = PublicIds
+Check 'default public list is HERO only' ($heroIds -contains $side.id) $false
+$r = Invoke-WebRequest "$base/banners?placement=SIDE_AD" -UseBasicParsing
+$sideList = @(($r.Content | ConvertFrom-Json).data)
+Check 'SIDE_AD list has the side ad' (@($sideList | Where-Object { $_.id -eq $side.id }).Count) 1
+Check 'SIDE_AD list has no HERO banner' (@($sideList | Where-Object { $_.placement -ne 'SIDE_AD' }).Count) 0
+Check 'SIDE_AD list is cached too' $r.Headers['Cache-Control'] 'public, max-age=60'
+Check 'placement=HERO same as default' ((@((Call 'GET' '/banners?placement=HERO' $null $null).json.data | ForEach-Object { $_.id })) -join ',') ($heroIds -join ',')
+Check 'bad public placement -> 400' (Call 'GET' '/banners?placement=POPUP' $null $null).status 400
+
+$all = (Call 'GET' '/admin/banners' $admin $null).json
+$onlySide = (Call 'GET' '/admin/banners?placement=SIDE_AD' $admin $null).json
+Check 'admin filter SIDE_AD' (@($onlySide.data | Where-Object { $_.placement -ne 'SIDE_AD' }).Count) 0
+Check 'admin filter keeps the shared total' $onlySide.meta.total $all.meta.total
+
+Check 'mixed reorder -> 400' (Call 'PATCH' '/admin/banners/reorder' $admin @{ ids = @($side.id, $live.id) }).status 400
+$r = Call 'PATCH' '/admin/banners/reorder' $admin @{ ids = @($side.id) }
+Check 'reorder one placement' $r.status 200
+Check 'reorder answers that placement only' (@($r.json.data | Where-Object { $_.placement -ne 'SIDE_AD' }).Count) 0
+Check 'tall image too narrow for HERO -> 422' (Call 'PATCH' "/admin/banners/$($side.id)" $admin @{ placement = 'HERO' }).status 422
+$r = Call 'PATCH' "/admin/banners/$($contain)" $admin @{ placement = 'SIDE_AD' }
+Check 'a big enough HERO image may move to SIDE_AD' $r.json.data.placement 'SIDE_AD'
+Check 'moved banner goes to the end of SIDE_AD' $r.json.data.sortOrder 1   # the reorder above set the new side ad to 0
+
 # ---- 8. delete ----
 $gifFile = FileOf $gif.media.url
 $r = Call 'DELETE' "/admin/banners/$($gif.id)" $admin $null
@@ -212,6 +261,57 @@ Check 'file removed' (Test-Path $gifFile) $false
 Check 'thumbnail removed' (Test-Path ($gifFile -replace '\.webp$', '-thumb.webp')) $false
 Check 'gone from public list' ((PublicIds) -contains $gif.id) $false
 Check 'second delete -> 404' (Call 'DELETE' "/admin/banners/$($gif.id)" $admin $null).status 404
+
+# ---- 9. the limit of 12 banners ----
+function MediaCount { return @(Get-ChildItem 'uploads\media' -Filter *.webp -ErrorAction SilentlyContinue).Count }
+function StagingCount { return @(Get-ChildItem 'uploads\staging' -File -ErrorAction SilentlyContinue).Count }
+function AdminList { return (Call 'GET' '/admin/banners' $admin $null).json }
+$l = AdminList
+Check 'meta.max is 12' $l.meta.max 12
+Check 'meta.total matches the list' $l.meta.total @($l.data).Count
+for ($i = $l.meta.total; $i -lt 12; $i++) {
+    $r = NewBanner @{ titleEn = "Test fill $i" } $null
+    if ($r.status -eq 201) { $made += $r.json.data.id }
+}
+Check 'filled up to 12' (AdminList).meta.total 12
+Check 'the 12 include SIDE_AD banners' (@((AdminList).data | Where-Object { $_.placement -eq 'SIDE_AD' }).Count -ge 1) $true
+Check 'SIDE_AD create at the limit -> 409' (NewBanner @{ titleEn = 'Test side 13th'; placement = 'SIDE_AD' } 'media=side.png;type=image/png').status 409
+$m0 = MediaCount
+$r = Send 'POST' '/admin/banners' $admin @('media=banner.png;type=image/png', 'mobileMedia=mobile.jpg;type=image/jpeg') @{ titleEn = 'Test 13th' }
+Check '13th banner -> 409' $r.status 409
+Check 'code BANNER_LIMIT' $r.json.error.details.code 'BANNER_LIMIT'
+Check 'no new file after 409' (MediaCount) $m0
+Check 'staging empty after 409' (StagingCount) 0
+Check 'still 12' (AdminList).meta.total 12
+Check 'public list shows up to 12' (@((Call 'GET' '/banners' $null $null).json.data).Count -le 12) $true
+
+$drop = $made[-1]
+Check 'delete one at the limit' (Call 'DELETE' "/admin/banners/$drop" $admin $null).status 200
+$made = @($made | Where-Object { $_ -ne $drop })
+$r = NewBanner @{ titleEn = 'Test after delete' } $null
+Check 'create again after a delete' $r.status 201
+$made += $r.json.data.id
+
+# two creates at the same time with 11 banners: one wins, the total stays 12
+$drop = $made[-1]
+Call 'DELETE' "/admin/banners/$drop" $admin $null | Out-Null
+$made = @($made | Where-Object { $_ -ne $drop })
+Check 'down to 11' (AdminList).meta.total 11
+$m0 = MediaCount
+$procs = foreach ($n in 'A', 'B') {
+    $resp = Join-Path $tmp "race-$n.json"; $code = Join-Path $tmp "race-$n.code"
+    $cargs = "-s -o `"$resp`" -w %{http_code} -X POST -H `"Authorization: Bearer $admin`" -F `"media=@$(Join-Path $tmp 'banner.png');type=image/png`" --form-string `"titleEn=Test race $n`" $base/admin/banners"
+    Start-Process curl.exe -ArgumentList $cargs -NoNewWindow -PassThru -RedirectStandardOutput $code
+}
+$procs | Wait-Process
+$codes = @('A', 'B' | ForEach-Object { (Get-Content (Join-Path $tmp "race-$_.code") -Raw).Trim() }) | Sort-Object
+Check 'parallel: one 201 and one 409' ($codes -join ',') '201,409'
+Check 'parallel: total is 12, not 13' (AdminList).meta.total 12
+Check 'parallel: only the winner kept files' (MediaCount) ($m0 + 2)
+Check 'parallel: staging empty' (StagingCount) 0
+foreach ($n in 'A', 'B') {
+    try { $j = Get-Content (Join-Path $tmp "race-$n.json") -Raw | ConvertFrom-Json; if ($j.data.id) { $made += $j.data.id } } catch { }
+}
 
 # ---- cleanup ----
 foreach ($id in $made) { Call 'DELETE' "/admin/banners/$id" $admin $null | Out-Null }

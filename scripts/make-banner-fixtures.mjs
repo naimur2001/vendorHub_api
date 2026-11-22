@@ -23,6 +23,9 @@ const files = {
     .gif({ delay: [300, 300], loop: 0 })
     .toBuffer(),
   'small.png': await solid(600, 200, 0, 0, 0).png().toBuffer(),
+  // side advertisement: tall 2:3, and one below its 300 x 400 minimum
+  'side.png': await solid(600, 900, 90, 30, 120).png().toBuffer(),
+  'side-small.png': await solid(280, 420, 90, 30, 120).png().toBuffer(),
   // random noise does not compress: well over 5 MB
   'big.png': await sharp(crypto.randomBytes(2600 * 1000 * 3), { raw: { width: 2600, height: 1000, channels: 3 } })
     .png({ compressionLevel: 0 })

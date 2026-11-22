@@ -472,6 +472,16 @@ model SubOrder {
   @@index([checkoutId])
 }
 
+enum BannerPlacement {
+  HERO // the home page slider (landscape)
+  SIDE_AD // the home page side advertisement (tall)
+}
+
+enum BannerFit {
+  COVER // fill the slide, crop the edges
+  CONTAIN // show the whole image, letterbox
+}
+
 enum BannerMediaType {
   IMAGE
   GIF
@@ -488,6 +498,8 @@ model Banner {
   subtitleEn    String?
   subtitleBn    String?
   mediaType     BannerMediaType
+  fit           BannerFit       @default(COVER)
+  placement     BannerPlacement @default(HERO)
   imageId       String          @unique
   image         Image           @relation("HomeBanner", fields: [imageId], references: [id])
   mobileImageId String?         @unique
@@ -503,6 +515,7 @@ model Banner {
   updatedAt     DateTime        @updatedAt
 
   @@index([isActive, sortOrder])
+  @@index([placement, isActive, sortOrder])
 }
 
 // One row per status change, for the customer's tracking timeline.

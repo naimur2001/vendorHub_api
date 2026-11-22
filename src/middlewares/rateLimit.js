@@ -40,3 +40,15 @@ export const uploadLimiter = rateLimit({
   legacyHeaders: false,
   message: { success: false, error: { message: 'Too many uploads. Please try again later.' } },
 });
+
+// Home banners (admin only): their own allowance, so managing the billboard (at most 12 banners,
+// each with a phone version) never uses up the admin's allowance for market and product photos.
+export const bannerUploadLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 60,
+  skipFailedRequests: true,
+  keyGenerator: (req) => `banner-upload:${req.user.id}`,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { success: false, error: { message: 'Too many uploads. Please try again later.' } },
+});

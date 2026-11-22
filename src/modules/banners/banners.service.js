@@ -3,11 +3,20 @@
 // If the transaction fails, the new files are deleted again, so nothing points at a missing file.
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
-import { processImage } from '../../lib/images.js';
+import { processImage, IMAGE_PROFILES } from '../../lib/images.js';
 import { stageImage, removeImage, imageUrls } from '../../lib/storage.js';
+import { MAX_BANNERS } from '../../config/limits.js';
 import { bannerId } from './banners.schema.js';
 
-const PUBLIC_LIMIT = 10;
+// per placement: the slider shows all live banners, the side advertisement at most 3 (the web shows the first)
+const PUBLIC_LIMIT = { HERO: MAX_BANNERS, SIDE_AD: 3 };
+// the image rules per placement (HERO landscape, SIDE_AD tall)
+const PROFILE = { HERO: 'HOME_BANNER', SIDE_AD: 'SIDE_AD' };
+// Serialises banner creation (Postgres advisory lock, released at the end of the transaction),
+// so two uploads at the same time cannot both pass the limit check.
+const CREATE_LOCK = 724_001;
+const limitReached = () =>
+  new AppError(409, `You can have at most ${MAX_BANNERS} banners. Delete one first.`, { code: 'BANNER_LIMIT' });
 const PURPOSE = { main: 'HOME_BANNER', mobile: 'HOME_BANNER_MOBILE' };
 const include = { image: true, mobileImage: true };
 const order = [{ sortOrder: 'asc' }, { createdAt: 'asc' }];
@@ -30,6 +39,8 @@ const presentPublic = (b) => ({
   subtitleEn: b.subtitleEn,
   subtitleBn: b.subtitleBn,
   mediaType: b.mediaType,
+  fit: b.fit,
+  placement: b.placement,
   media: media(b.image),
   mobileMedia: media(b.mobileImage),
   linkUrl: b.linkUrl,
@@ -60,11 +71,11 @@ async function findBanner(id) {
 
 // Processes every new file first (a bad phone version must not leave a published main file),
 // then publishes them. Returns { main?, mobile?, keys } .
-async function publishMedia(files) {
+async function publishMedia(files, placement) {
   const mainFile = files?.media?.[0];
   const mobileFile = files?.mobileMedia?.[0];
   const processed = {
-    main: mainFile && (await processImage(mainFile.buffer, 'HOME_BANNER')),
+    main: mainFile && (await processImage(mainFile.buffer, PROFILE[placement])),
     mobile: mobileFile && (await processImage(mobileFile.buffer, 'HOME_BANNER_MOBILE')),
   };
   const out = { keys: [] };
@@ -88,10 +99,11 @@ const createImage = (tx, admin, m, purpose) =>
   tx.image.create({ data: { key: m.key, width: m.width, height: m.height, purpose, ownerId: admin.id } });
 
 // ---------- public ----------
-export async function listPublic() {
+export async function listPublic(placement = 'HERO') {
   const now = new Date();
   const rows = await prisma.banner.findMany({
     where: {
+      placement,
       isActive: true,
       AND: [
         { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
@@ -100,32 +112,42 @@ export async function listPublic() {
     },
     include,
     orderBy: order,
-    take: PUBLIC_LIMIT,
+    take: PUBLIC_LIMIT[placement],
   });
   return rows.map(presentPublic);
 }
 
 // ---------- admin ----------
-export async function listAdmin() {
-  const rows = await prisma.banner.findMany({ include, orderBy: order });
-  return rows.map(presentAdmin);
+// meta.total counts EVERY placement: the limit of 12 is shared, whatever the filter
+export async function listAdmin(placement) {
+  const [rows, total] = await Promise.all([
+    prisma.banner.findMany({ where: placement ? { placement } : {}, include, orderBy: [{ placement: 'asc' }, ...order] }),
+    prisma.banner.count(),
+  ]);
+  return { items: rows.map(presentAdmin), meta: { total, max: MAX_BANNERS } };
 }
 
 export async function createBanner(admin, body, files) {
   if (!files?.media?.[0]) throw new AppError(400, 'Send the banner image in the multipart field "media"');
-  const published = await publishMedia(files);
+  // quick check before any file is written; the real check is repeated under the lock below
+  if ((await prisma.banner.count()) >= MAX_BANNERS) throw limitReached();
+  const placement = body.placement ?? 'HERO';
+  const published = await publishMedia(files, placement);
   try {
     const banner = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${CREATE_LOCK}::bigint)`; // $queryRaw cannot read a void result
+      if ((await tx.banner.count()) >= MAX_BANNERS) throw limitReached();
       const image = await createImage(tx, admin, published.main, PURPOSE.main);
       const mobile = published.mobile && (await createImage(tx, admin, published.mobile, PURPOSE.mobile));
       let { sortOrder } = body;
       if (sortOrder === undefined) {
-        const last = await tx.banner.aggregate({ _max: { sortOrder: true } });
+        const last = await tx.banner.aggregate({ where: { placement }, _max: { sortOrder: true } });
         sortOrder = (last._max.sortOrder ?? -1) + 1; // new banners go to the end
       }
       const b = await tx.banner.create({
         data: {
           ...body,
+          placement,
           sortOrder,
           mediaType: published.main.animated ? 'GIF' : 'IMAGE',
           imageId: image.id,
@@ -155,7 +177,21 @@ export async function updateBanner(admin, id, body, files) {
   const endsAt = fields.endsAt !== undefined ? fields.endsAt : banner.endsAt;
   if (startsAt && endsAt && endsAt <= startsAt) throw new AppError(400, 'endsAt must be after startsAt');
 
-  const published = await publishMedia(files);
+  // a new placement keeps the current image only when it meets that placement's minimum size
+  const placement = fields.placement ?? banner.placement;
+  const moved = placement !== banner.placement;
+  if (moved && !files?.media?.[0]) {
+    const p = IMAGE_PROFILES[PROFILE[placement]];
+    if (banner.image.width < p.minWidth || banner.image.height < p.minHeight) {
+      throw new AppError(422, `The current image is too small for this placement (at least ${p.minWidth} x ${p.minHeight} pixels). Send a new one.`);
+    }
+  }
+  if (moved && fields.sortOrder === undefined) {
+    const last = await prisma.banner.aggregate({ where: { placement }, _max: { sortOrder: true } });
+    fields.sortOrder = (last._max.sortOrder ?? -1) + 1; // goes to the end of its new placement
+  }
+
+  const published = await publishMedia(files, placement);
   const oldKeys = [];
   try {
     const updated = await prisma.$transaction(async (tx) => {
@@ -208,14 +244,18 @@ export async function deleteBanner(admin, id) {
 }
 
 // Sets sortOrder 0, 1, 2 ... in the given order. Banners not listed keep their sortOrder.
+// One placement at a time: mixing slider and side-ad ids is a 400.
 export async function reorderBanners(admin, ids) {
-  const found = await prisma.banner.count({ where: { id: { in: ids } } });
-  if (found !== ids.length) throw new AppError(404, NOT_FOUND);
+  const rows = await prisma.banner.findMany({ where: { id: { in: ids } }, select: { placement: true } });
+  if (rows.length !== ids.length) throw new AppError(404, NOT_FOUND);
+  const placements = new Set(rows.map((r) => r.placement));
+  if (placements.size > 1) throw new AppError(400, 'Reorder the banners of one placement at a time');
+  const [placement] = placements;
   await prisma.$transaction(async (tx) => {
     for (const [i, id] of ids.entries()) {
       await tx.banner.update({ where: { id }, data: { sortOrder: i } });
     }
-    await audit(tx, admin, 'banner.reordered', ids[0], { ids });
+    await audit(tx, admin, 'banner.reordered', ids[0], { ids, placement });
   });
-  return listAdmin();
+  return listAdmin(placement);
 }
