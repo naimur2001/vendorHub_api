@@ -1,0 +1,459 @@
+# Flash deals and coupons. Managed by the shop's owner or staff (admins get 403).
+# A flash deal is active while startsAt <= now < endsAt and it has units left. While active, the
+# listing's effective price is the deal price EVERYWHERE: product cards (lowestPrice, price filters
+# and sort), the product page, the storefront grid, the wishlist, the cart and the checkout. Cards
+# and listings carry `deal` ({ price, endsAt, ... } or null). When the deal ends the normal price
+# comes back by itself. A cancelled order gives its deal units and coupon use back.
+# Coupons are applied at checkout per shop order (couponCode on the shop choice); the server
+# computes the discount on the items' subtotal (not the delivery fee).
+paths:
+  /api/v1/deals:
+    get:
+      tags: [Promotions]
+      operationId: listDeals
+      summary: Active flash deals for the home page row (no login), ending soonest first
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 30
+            default: 12
+      responses:
+        '200':
+          description: Active deals (cached 30 s).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PublicDeal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/v1/shops/{shopId}/deals:
+    parameters:
+      - $ref: '#/components/parameters/PromoShopId'
+    get:
+      tags: [Promotions]
+      operationId: listShopDeals
+      summary: The shop's flash deals (scheduled, active, sold out and ended)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ShopDeal'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Promotions]
+      operationId: createShopDeal
+      summary: Create a flash deal on one of the shop's listings
+      description: |
+        dealPrice must be lower than the listing price. At most one deal per listing at any time
+        (overlapping windows: 409 DEAL_OVERLAP). At most 30 days long. startsAt defaults to now.
+        Audited as deal.created.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [listingId, dealPrice, endsAt]
+              properties:
+                listingId:
+                  type: string
+                  format: uuid
+                dealPrice:
+                  type: integer
+                  minimum: 1
+                startsAt:
+                  type: string
+                  format: date-time
+                endsAt:
+                  type: string
+                  format: date-time
+                maxQty:
+                  type: integer
+                  minimum: 1
+                  nullable: true
+                  description: Units sold at the deal price; null = no limit.
+      responses:
+        '201':
+          description: The new deal.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ShopDeal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/shops/{shopId}/deals/{dealId}:
+    parameters:
+      - $ref: '#/components/parameters/PromoShopId'
+      - name: dealId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [Promotions]
+      operationId: endShopDeal
+      summary: End a deal now (a deal that has not started is deleted)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Ended.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/shops/{shopId}/coupons:
+    parameters:
+      - $ref: '#/components/parameters/PromoShopId'
+    get:
+      tags: [Promotions]
+      operationId: listShopCoupons
+      summary: The shop's coupons with their use counts
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Coupon'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Promotions]
+      operationId: createShopCoupon
+      summary: Create a coupon (exactly one of percentOff or amountOff)
+      description: The code is stored upper case and is unique over all shops (409 COUPON_CODE_TAKEN). Audited as coupon.created.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, endsAt]
+              properties:
+                code:
+                  type: string
+                  pattern: '^[A-Za-z0-9]{4,16}$'
+                percentOff:
+                  type: integer
+                  minimum: 1
+                  maximum: 90
+                amountOff:
+                  type: integer
+                  minimum: 1
+                minOrder:
+                  type: integer
+                  minimum: 0
+                  default: 0
+                  description: The items' subtotal at this shop must reach this (taka).
+                startsAt:
+                  type: string
+                  format: date-time
+                endsAt:
+                  type: string
+                  format: date-time
+                maxUses:
+                  type: integer
+                  minimum: 1
+                  nullable: true
+                perCustomer:
+                  type: integer
+                  minimum: 1
+                  maximum: 10
+                  default: 1
+      responses:
+        '201':
+          description: The new coupon.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Coupon'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/shops/{shopId}/coupons/{couponId}:
+    parameters:
+      - $ref: '#/components/parameters/PromoShopId'
+      - name: couponId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [Promotions]
+      operationId: updateShopCoupon
+      summary: Switch a coupon off or on, or change its end or use limit
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                isActive:
+                  type: boolean
+                endsAt:
+                  type: string
+                  format: date-time
+                maxUses:
+                  type: integer
+                  minimum: 1
+                  nullable: true
+      responses:
+        '200':
+          description: The coupon.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Coupon'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  parameters:
+    PromoShopId:
+      name: shopId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    CardDeal:
+      type: object
+      nullable: true
+      required: [price, endsAt]
+      description: The lowest active flash deal among the product's listings, or null.
+      properties:
+        price:
+          type: integer
+        endsAt:
+          type: string
+          format: date-time
+    ListingDeal:
+      type: object
+      nullable: true
+      required: [price, originalPrice, endsAt, remaining]
+      description: The active flash deal on this listing (price is then the deal price), or null.
+      properties:
+        price:
+          type: integer
+        originalPrice:
+          type: integer
+        endsAt:
+          type: string
+          format: date-time
+        remaining:
+          type: integer
+          nullable: true
+          description: Units left at the deal price; null = no limit.
+    PublicDeal:
+      type: object
+      required: [dealId, listingId, price, originalPrice, percentOff, endsAt, remaining, availability, product, shop]
+      properties:
+        dealId:
+          type: string
+          format: uuid
+        listingId:
+          type: string
+          format: uuid
+        price:
+          type: integer
+        originalPrice:
+          type: integer
+        percentOff:
+          type: integer
+        endsAt:
+          type: string
+          format: date-time
+        remaining:
+          type: integer
+          nullable: true
+        availability:
+          $ref: '#/components/schemas/Availability'
+        product:
+          type: object
+          required: [id, slug, title, image, thumbUrl]
+          properties:
+            id:
+              type: string
+              format: uuid
+            slug:
+              type: string
+            title:
+              type: string
+            image:
+              type: string
+              nullable: true
+            thumbUrl:
+              type: string
+              nullable: true
+        shop:
+          $ref: '#/components/schemas/IdNameSlug'
+    ShopDeal:
+      type: object
+      required: [id, listingId, productTitle, listPrice, dealPrice, startsAt, endsAt, maxQty, soldQty, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        listingId:
+          type: string
+          format: uuid
+        productTitle:
+          type: string
+          nullable: true
+        listPrice:
+          type: integer
+          nullable: true
+        dealPrice:
+          type: integer
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        maxQty:
+          type: integer
+          nullable: true
+        soldQty:
+          type: integer
+        status:
+          type: string
+          enum: [SCHEDULED, ACTIVE, SOLD_OUT, ENDED]
+    Coupon:
+      type: object
+      required: [id, code, percentOff, amountOff, minOrder, startsAt, endsAt, maxUses, usedCount, perCustomer, isActive, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        percentOff:
+          type: integer
+          nullable: true
+        amountOff:
+          type: integer
+          nullable: true
+        minOrder:
+          type: integer
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        maxUses:
+          type: integer
+          nullable: true
+        usedCount:
+          type: integer
+        perCustomer:
+          type: integer
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    OrderDiscount:
+      type: integer
+      description: Coupon discount (taka) on the items; total = subtotal - discount + deliveryFee.
+    OrderCouponCode:
+      type: string
+      nullable: true

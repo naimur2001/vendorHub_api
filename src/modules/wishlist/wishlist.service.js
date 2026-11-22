@@ -2,6 +2,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { thumbFor } from '../../lib/storage.js';
+import { activeDeals, effectivePrice, presentDeal } from '../../lib/deals.js';
 import { MAX_WISHLIST } from '../../config/limits.js';
 import { listingIdParam } from './wishlist.schema.js';
 
@@ -22,15 +23,18 @@ const listingInclude = {
   },
 };
 
-const present = (item) => {
+// price is the effective price: an active flash deal counts (and shows as a price drop)
+const present = (item, deal = null) => {
   const l = item.listing;
   const image = l.product.images?.[0] ?? null;
+  const price = effectivePrice(l.price, deal);
   return {
     listingId: l.id,
     savedAt: item.createdAt,
     priceAtSave: item.priceAtSave,
-    price: l.price,
-    priceDropped: l.price < item.priceAtSave,
+    price,
+    deal: presentDeal(deal, l.price),
+    priceDropped: price < item.priceAtSave,
     availability: l.availability,
     product: { id: l.product.id, slug: l.product.slug, title: l.product.title, msrp: l.product.msrp, image, thumbUrl: thumbFor(image) },
     shop: l.shop,
@@ -52,8 +56,9 @@ export async function list(userId, { page, limit }) {
       take: limit,
     }),
   ]);
+  const deals = await activeDeals(rows.map((r) => r.listingId));
   return {
-    items: rows.map(present),
+    items: rows.map((r) => present(r, deals.get(r.listingId))),
     pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
   };
 }

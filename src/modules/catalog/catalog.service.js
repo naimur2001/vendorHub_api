@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { thumbFor } from '../../lib/storage.js';
 import { distanceKm } from '../../lib/geo.js';
+import { activeDeals, effectivePrice, presentDeal, dealJoin, effectivePriceSql } from '../../lib/deals.js';
 const AVAILABILITY_RANK = { IN_STOCK: 4, AVAILABLE: 3, LIMITED: 2, OUT_OF_STOCK: 1 };
 
 // The "best" availability among a product's listings (used on product cards).
@@ -76,8 +77,10 @@ export async function listProducts(query) {
   const listingConds = [Prisma.sql`l."isActive" = true`, Prisma.sql`s."isActive" = true`];
   if (marketId) listingConds.push(Prisma.sql`s."marketId" = ${marketId}`);
   if (shopId) listingConds.push(Prisma.sql`l."shopId" = ${shopId}`);
-  if (minPrice !== undefined) listingConds.push(Prisma.sql`l.price >= ${minPrice}`);
-  if (maxPrice !== undefined) listingConds.push(Prisma.sql`l.price <= ${maxPrice}`);
+  // prices are EFFECTIVE prices: an active flash deal counts (see lib/deals.js)
+  const eff = effectivePriceSql('l');
+  if (minPrice !== undefined) listingConds.push(Prisma.sql`(${eff}) >= ${minPrice}`);
+  if (maxPrice !== undefined) listingConds.push(Prisma.sql`(${eff}) <= ${maxPrice}`);
   if (availableOnly) listingConds.push(Prisma.sql`l.availability <> 'OUT_OF_STOCK'`);
 
   // fp: the products that pass the product filters.
@@ -91,18 +94,22 @@ export async function listProducts(query) {
     ),
     m AS (
       SELECT l."productId",
-             MIN(l.price) AS "lowestPrice",
-             MAX(l.price) AS "highestPrice",
+             MIN(${eff}) AS "lowestPrice",
+             MAX(${eff}) AS "highestPrice",
              COUNT(*)::int AS "shopCount",
              MAX(CASE l.availability
                    WHEN 'IN_STOCK' THEN 4 WHEN 'AVAILABLE' THEN 3 WHEN 'LIMITED' THEN 2 ELSE 1
                  END) AS "availabilityRank",
              BOOL_OR(l."bargainEnabled") AS "bargainAvailable",
              -- the listing a card's wishlist heart saves: the cheapest IN_STOCK one, else the cheapest
-             (ARRAY_AGG(l.id ORDER BY (l.availability = 'IN_STOCK') DESC, l.price ASC, l.id ASC))[1] AS "bestListingId"
+             (ARRAY_AGG(l.id ORDER BY (l.availability = 'IN_STOCK') DESC, ${eff} ASC, l.id ASC))[1] AS "bestListingId",
+             -- the lowest active flash deal among the matching listings (the card's deal badge)
+             MIN(dl."dealPrice") FILTER (WHERE dl."dealPrice" < l.price) AS "dealPrice",
+             (ARRAY_AGG(dl."endsAt" ORDER BY dl."dealPrice") FILTER (WHERE dl."dealPrice" < l.price))[1] AS "dealEndsAt"
       FROM "ShopListing" l
       JOIN fp ON fp.id = l."productId"
       JOIN "Shop" s ON s.id = l."shopId"
+      ${dealJoin('l')}
       WHERE ${Prisma.join(listingConds, ' AND ')}
       GROUP BY l."productId"
     )`;
@@ -112,7 +119,7 @@ export async function listProducts(query) {
   const rows = await prisma.$queryRaw`
     ${base}
     SELECT fp.id, m."lowestPrice", m."highestPrice", m."shopCount", m."availabilityRank", m."bargainAvailable",
-           m."bestListingId", COUNT(*) OVER() AS total
+           m."bestListingId", m."dealPrice", m."dealEndsAt", COUNT(*) OVER() AS total
     FROM fp
     JOIN m ON m."productId" = fp.id
     ORDER BY ${ORDER_BY[sort]}
@@ -151,6 +158,7 @@ export async function listProducts(query) {
       msrp: p.msrp,
       lowestPrice: r.lowestPrice,
       bestListingId: r.bestListingId ?? null,
+      deal: r.dealPrice != null ? { price: r.dealPrice, endsAt: r.dealEndsAt } : null,
       highestPrice: r.highestPrice,
       shopCount: r.shopCount,
       availability: RANK_TO_AVAILABILITY[r.availabilityRank],
@@ -214,12 +222,18 @@ export async function getProduct(slug, listingId, point = null) {
     ]),
   );
 
+  // effective prices: an active flash deal lowers the price; listings re-sorted cheapest first
+  const deals = await activeDeals(product.listings.map((l) => l.id));
+  const priceOf = (l) => effectivePrice(l.price, deals.get(l.id));
+  product.listings.sort((a, b) => priceOf(a) - priceOf(b) || (a.id < b.id ? -1 : 1));
+
   const toListing = (l) => ({
     id: l.id,
-    price: l.price,
+    price: priceOf(l),
+    deal: presentDeal(deals.get(l.id), l.price),
     availability: l.availability,
     bargainEnabled: l.bargainEnabled,
-    discountPercent: product.msrp ? Math.round((1 - l.price / product.msrp) * 100) : null,
+    discountPercent: product.msrp ? Math.round((1 - priceOf(l) / product.msrp) * 100) : null,
     shop: { ...l.shop, rating: ratings.get(l.shop.id) ?? { average: null, count: 0 } },
     ...(point && { distanceKm: distanceKm(point, l.shop.market) }),
   });

@@ -5,6 +5,7 @@ import { deriveAvailability, stockIsFine } from '../../lib/availability.js';
 import { getOrder as getCustomerOrder, statusEventsInclude, reservationTimes } from '../checkout/checkout.service.js';
 import { notifyStatusChange, notifyCustomerCancel } from '../notifications/notifications.events.js';
 import { unreadCounts } from '../orderChat/orderChat.service.js';
+import { releasePromotions } from '../promotions/promotions.service.js';
 
 // Which statuses an order may move to from each status.
 const TRANSITIONS = {
@@ -41,6 +42,8 @@ const formatForShop = (o) => ({
   deliveryAddress: o.deliveryAddress,
   deliveryFee: o.deliveryFee,
   subtotal: o.subtotal,
+  discount: o.discount,
+  couponCode: o.couponCode,
   total: o.total,
   createdAt: o.createdAt,
   ...reservationTimes(o),
@@ -83,6 +86,7 @@ export async function restock(tx, orderId) {
 // Everything that must happen when an order is cancelled (mock refund until a real gateway exists).
 async function cancelEffects(tx, order) {
   await restock(tx, order.id);
+  await releasePromotions(tx, order.id); // flash-deal units and the coupon use come back
   if (order.paymentMethod === 'ONLINE' && order.paymentStatus === 'PAID') {
     await tx.subOrder.update({ where: { id: order.id }, data: { paymentStatus: 'REFUNDED' } });
     await tx.payment.updateMany({

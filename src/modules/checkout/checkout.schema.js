@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { couponCode } from '../promotions/promotions.schema.js';
 
 const shopChoice = z.object({
   shopId: z.string().uuid(),
@@ -8,6 +9,7 @@ const shopChoice = z.object({
   // deliveryAddress: z.string().trim().min(10).max(300).optional(),
     deliveryAddress: z.string().trim().min(10).max(300).optional(),
     addressId: z.string().uuid().optional(), // a saved address of the customer, instead of typing one
+    couponCode: couponCode.optional(), // a coupon of THIS shop; the discount is computed on the server
 });
 
 export const checkoutSchema = z.object({

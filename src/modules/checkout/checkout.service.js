@@ -5,6 +5,8 @@ import { env } from '../../config/env.js';
 import { deriveAvailability } from '../../lib/availability.js';
 import { notifyNewOrders, notifyLowStock } from '../notifications/notifications.events.js';
 import { unreadCounts } from '../orderChat/orderChat.service.js';
+import { activeDeals, effectivePrice } from '../../lib/deals.js';
+import { redeemCoupon } from '../promotions/promotions.service.js';
 import { RESERVATION_HOURS, RESERVATION_CONFIRM_MINUTES, MAX_ACTIVE_RESERVATIONS } from '../../config/limits.js';
 
 // a reservation counts against the limit until it is completed or cancelled
@@ -54,6 +56,8 @@ const formatOrder = (o) => ({
   deliveryAddress: o.deliveryAddress,
   deliveryFee: o.deliveryFee,
   subtotal: o.subtotal,
+  discount: o.discount,
+  couponCode: o.couponCode,
   total: o.total,
   createdAt: o.createdAt,
   ...reservationTimes(o),
@@ -110,6 +114,8 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
           c.deliveryAddress = `${saved.line1}${saved.area ? `, ${saved.area}` : ''}, ${saved.city}. Phone: ${saved.phone}`;
         }
 
+      const deals = await activeDeals(cart.items.map((i) => i.listingId), tx);
+
       // 1. Re-check every item and group by shop. Prices are re-read here, never taken from the client.
       const byShop = new Map();
       const problems = [];
@@ -130,9 +136,12 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
             item.bargain.agreedPrice &&
             item.bargain.customerId === userId,
         );
-        // const unitPrice = bargained ? item.bargain.agreedPrice : l.price;
-           const unitPrice = bargained ? Math.min(item.bargain.agreedPrice, l.price) : l.price; 
-           // never pay more than the current listing price
+        // The price is re-read here (never taken from the client): an active flash deal lowers it,
+        // an accepted bargain may lower it further; never more than the current listing price.
+        const deal = deals.get(l.id);
+        const price = effectivePrice(l.price, deal);
+        const unitPrice = bargained ? Math.min(item.bargain.agreedPrice, price) : price;
+        const dealApplied = Boolean(deal && deal.dealPrice < l.price && unitPrice === deal.dealPrice);
 
         if (!byShop.has(l.shop.id)) byShop.set(l.shop.id, { shop: l.shop, lines: [] });
         byShop.get(l.shop.id).lines.push({
@@ -142,6 +151,8 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
           quantity: item.quantity,
           bargained,
           stockQty: l.stockQty,
+          flashDealId: dealApplied ? deal.id : null,
+          dealMaxQty: dealApplied ? deal.maxQty : null,
         });
       }
       if (problems.length) {
@@ -218,6 +229,21 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
         }
       }
 
+      // 4b. Take the flash-deal units (a deal with maxQty can sell out: then 409, nothing is saved,
+      //     and the cart shows the normal price again)
+      for (const { lines } of byShop.values()) {
+        for (const line of lines) {
+          if (!line.flashDealId) continue;
+          const taken = await tx.flashDeal.updateMany({
+            where: { id: line.flashDealId, ...(line.dealMaxQty !== null && { soldQty: { lte: line.dealMaxQty - line.quantity } }) },
+            data: { soldQty: { increment: line.quantity } },
+          });
+          if (taken.count !== 1) {
+            throw new AppError(409, `The flash deal on ${line.title} just sold out. Review your cart.`, { code: 'DEAL_SOLD_OUT' });
+          }
+        }
+      }
+
       // 5. One parent session, one independent order per shop
       const session = await tx.checkoutSession.create({ data: { userId, totalAmount: 0 } });
       let totalAmount = 0;
@@ -226,7 +252,10 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
         const { lines } = byShop.get(c.shopId);
         const subtotal = lines.reduce((sum, l) => sum + l.unitPrice * l.quantity, 0);
         const deliveryFee = c.deliveryMethod === 'VENDOR_DELIVERY' ? DELIVERY_FEE : 0;
-        const total = subtotal + deliveryFee;
+        // a coupon of THIS shop lowers the items' subtotal (never the delivery fee); computed here
+        const coupon = c.couponCode ? await redeemCoupon(tx, userId, c.shopId, c.couponCode, subtotal) : null;
+        const discount = coupon?.discount ?? 0;
+        const total = subtotal - discount + deliveryFee;
         totalAmount += total;
 
         const order = await tx.subOrder.create({
@@ -238,6 +267,8 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
             deliveryAddress: c.deliveryMethod === 'VENDOR_DELIVERY' ? c.deliveryAddress : null,
             deliveryFee,
             subtotal,
+            discount,
+            couponCode: coupon ? coupon.code : null,
             total,
             paymentMethod: c.paymentMethod,
             paymentStatus: 'PENDING',
@@ -246,12 +277,13 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
             }),
             statusEvents: { create: [{ status: 'PLACED', actorRole: 'CUSTOMER' }] },
             items: {
-              create: lines.map(({ listingId, title, unitPrice, quantity, bargained }) => ({
+              create: lines.map(({ listingId, title, unitPrice, quantity, bargained, flashDealId }) => ({
                 listingId,
                 title,
                 unitPrice,
                 quantity,
                 bargained,
+                flashDealId,
               })),
             },
             // online orders get a payment record that the (mock) gateway completes
@@ -261,6 +293,11 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
           },
           include: orderInclude,
         });
+        if (coupon) {
+          await tx.couponRedemption.create({
+            data: { couponId: coupon.id, userId, subOrderId: order.id, discount },
+          });
+        }
         orders.push(order);
       }
       await tx.checkoutSession.update({ where: { id: session.id }, data: { totalAmount } });

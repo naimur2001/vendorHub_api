@@ -10,6 +10,7 @@ import { logger } from '../lib/logger.js';
 import { notify } from '../lib/notify.js';
 import { RESERVATION_CONFIRM_MINUTES } from '../config/limits.js';
 import { restock } from '../modules/fulfilment/fulfilment.service.js';
+import { releasePromotions } from '../modules/promotions/promotions.service.js';
 import { shopTeamIds } from '../modules/notifications/notifications.events.js';
 
 export const REASON_NOT_CONFIRMED = 'Shop did not confirm';
@@ -26,6 +27,7 @@ async function autoCancel(order, reason) {
     });
     if (claimed.count !== 1) return false; // already changed by the shop or by another run
     await restock(tx, order.id);
+    await releasePromotions(tx, order.id);
     await tx.orderStatusEvent.create({
       data: { subOrderId: order.id, status: 'CANCELLED', actorRole: 'SYSTEM', note: reason },
     });

@@ -111,6 +111,9 @@ async function clean() {
   await prisma.$transaction([
         prisma.banner.deleteMany(), // before image: a banner points at its Image rows
         prisma.wishlistItem.deleteMany(),
+        prisma.couponRedemption.deleteMany(),
+        prisma.coupon.deleteMany(),
+        prisma.flashDeal.deleteMany(),
         prisma.listingView.deleteMany(),
         prisma.addToCartEvent.deleteMany(),
         prisma.idempotencyKey.deleteMany(),

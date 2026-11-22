@@ -111,13 +111,16 @@ Check 'other shop owner -> 403' (Call 'GET' "/shops/$techId/analytics" $owner3 $
 Check 'customer -> 403' (Call 'GET' "/shops/$techId/analytics" $cust $null).status 403
 Check 'admin -> 403 (owner tools)' (Call 'GET' "/shops/$techId/analytics" $admin $null).status 403
 
-Call 'GET' "/products/${slug}?listingId=$lid" $cust $null | Out-Null
-Call 'GET' "/products/${slug}?listingId=$lid" $cust $null | Out-Null
-Call 'GET' "/products/${slug}?listingId=$lid" $null $null | Out-Null
-Call 'GET' "/products/${slug}?listingId=$lid" $null $null | Out-Null
+# two fresh visitors (never seen today), each opening the page twice
+$viewers = foreach ($n in 1, 2) {
+    $e = "view$n-$([guid]::NewGuid().ToString('N').Substring(0, 8))@vendorshub.test"
+    Need ((Call 'POST' '/auth/register' $null @{ name = "Viewer $n"; email = $e; password = 'Password123!' }).status -eq 201) 'registering a viewer'
+    Login $e
+}
+foreach ($v in $viewers) { 1..2 | ForEach-Object { Call 'GET' "/products/${slug}?listingId=$lid" $v $null | Out-Null } }
 Start-Sleep -Milliseconds 500
 $a1 = Stats '7d'
-Check 'one view per visitor per day (customer + guest = 2)' ($a1.totals.views - $a0.totals.views) 2
+Check 'one view per visitor per day (2 visitors x 2 opens = 2)' ($a1.totals.views - $a0.totals.views) 2
 $o = Order 1
 Start-Sleep -Milliseconds 500
 $a2 = Stats '7d'
@@ -151,7 +154,8 @@ Check 'negative lowStockAt -> 400' (Call 'PATCH' "/shops/$techId/listings/$lid" 
 foreach ($x in $o, $o2, $o3) { Call 'POST' "/orders/$($x.id)/cancel" $cust @{ reason = 'Test' } | Out-Null }
 
 # ---- 3. CSV import ----
-$listedIds = @($mine | ForEach-Object { $_.product.id })
+# a product with NO listing at this shop (inactive ones included, e.g. left by an earlier run)
+$listedIds = @((Call 'GET' "/shops/$techId/listings" $owner $null).json.data | ForEach-Object { $_.product.id })
 $newP = @((Call 'GET' '/products?limit=50' $null $null).json.data | Where-Object { $listedIds -notcontains $_.id })[0]
 Need $newP 'a product TechZone does not sell yet'
 $titleP = (Call 'GET' "/products/$($mine[1].product.slug)" $null $null).json.data.product

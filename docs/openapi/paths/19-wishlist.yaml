@@ -204,7 +204,9 @@ components:
           description: The current price (taka).
         priceDropped:
           type: boolean
-          description: price < priceAtSave
+          description: price < priceAtSave (an active flash deal counts)
+        deal:
+          $ref: '#/components/schemas/ListingDeal'
         availability:
           $ref: '#/components/schemas/Availability'
         product:

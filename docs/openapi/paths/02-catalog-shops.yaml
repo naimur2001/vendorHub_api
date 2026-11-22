@@ -639,8 +639,10 @@ components:
           type: string
     ProductCard:
       type: object
-      required: [bestListingId]
+      required: [bestListingId, deal]
       properties:
+        deal:
+          $ref: '#/components/schemas/CardDeal'
         bestListingId:
           type: string
           format: uuid
@@ -744,6 +746,8 @@ components:
           nullable: true
         shop:
           $ref: '#/components/schemas/ListingShop'
+        deal:
+          $ref: '#/components/schemas/ListingDeal'
         distanceKm:
           type: number
           nullable: true

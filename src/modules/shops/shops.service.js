@@ -4,6 +4,7 @@ import { AppError } from '../../lib/errors.js';
 import { presentImage } from '../../lib/storage.js';
 import { mergeSocialLinks, presentSocialLinks, sameSocialLinks } from '../../lib/socialLinks.js';
 import { presentHours } from '../../lib/openingHours.js';
+import { activeDeals, effectivePrice, presentDeal } from '../../lib/deals.js';
 import { assertShopTeam } from '../../lib/shopAccess.js'; // hours: owner or staff only, not admins
 const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
@@ -213,6 +214,8 @@ export async function getShopProducts(slug, query) {
     }),
   ]);
 
+  // effective prices (flash deals); the price sort above uses the list price
+  const deals = await activeDeals(rows.map((l) => l.id));
   const items = rows.map((l) => ({
     listingId: l.id,
     product: {
@@ -222,7 +225,8 @@ export async function getShopProducts(slug, query) {
       brand: l.product.brand?.name ?? null,
       image: l.product.images[0] ?? null,
     },
-    price: l.price,
+    price: effectivePrice(l.price, deals.get(l.id)),
+    deal: presentDeal(deals.get(l.id), l.price),
     msrp: l.product.msrp,
     availability: l.availability,
     bargainEnabled: l.bargainEnabled,

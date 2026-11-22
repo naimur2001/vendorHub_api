@@ -137,6 +137,10 @@ components:
           $ref: '#/components/schemas/ConfirmBy'
         unreadCount:
           $ref: '#/components/schemas/UnreadCount'
+        discount:
+          $ref: '#/components/schemas/OrderDiscount'
+        couponCode:
+          $ref: '#/components/schemas/OrderCouponCode'
         shop:
           type: object
           additionalProperties: true

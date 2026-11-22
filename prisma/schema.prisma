@@ -229,6 +229,7 @@ model Shop {
   reviews          Review[]
   followers        ShopFollow[]
   photos           ShopPhoto[]
+  coupons          Coupon[]
   returnPolicy     String?
   returnWindowDays Int                @default(7)
 
@@ -375,6 +376,7 @@ model ShopListing {
   wishlistItems WishlistItem[]
   views           ListingView[]
   addToCartEvents AddToCartEvent[]
+  flashDeals      FlashDeal[]
   lowStockAt         Int?      @default(3) // notify the shop team when stockQty falls to this or below; null = off
   lowStockNotifiedAt DateTime? // set when notified; cleared when restocked above lowStockAt
 
@@ -479,6 +481,9 @@ model SubOrder {
   statusEvents OrderStatusEvent[]
   reservedUntil DateTime? // RESERVE_PICKUP only: the order is cancelled if not COMPLETED by then
   messages      OrderMessage[]
+  discount      Int       @default(0) // coupon discount (taka) on the items; total = subtotal - discount + deliveryFee
+  couponCode    String?
+  couponRedemption CouponRedemption?
 
   @@index([shopId, status])
   @@index([checkoutId])
@@ -528,6 +533,58 @@ model AddToCartEvent {
   listing   ShopListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
   @@index([shopId, day])
+}
+
+// A time-limited lower price on one listing. While active (startsAt <= now < endsAt, units left)
+// the listing's effective price is LEAST(price, dealPrice) everywhere. One deal per listing at a time.
+model FlashDeal {
+  id          String      @id @default(uuid())
+  listingId   String
+  dealPrice   Int
+  startsAt    DateTime
+  endsAt      DateTime
+  maxQty      Int? // null = no unit limit
+  soldQty     Int         @default(0)
+  createdById String?
+  createdAt   DateTime    @default(now())
+  listing     ShopListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId, endsAt])
+  @@index([endsAt, startsAt])
+}
+
+// A shop's discount code, applied at checkout to that shop's order (computed on the server).
+model Coupon {
+  id          String             @id @default(uuid())
+  code        String             @unique // A-Z0-9, 4-16, stored upper case
+  shopId      String
+  percentOff  Int? // 1-90; exactly one of percentOff / amountOff
+  amountOff   Int? // taka
+  minOrder    Int                @default(0) // the items' subtotal must reach this
+  startsAt    DateTime
+  endsAt      DateTime
+  maxUses     Int? // null = unlimited
+  usedCount   Int                @default(0)
+  perCustomer Int                @default(1)
+  isActive    Boolean            @default(true)
+  createdAt   DateTime           @default(now())
+  shop        Shop               @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  redemptions CouponRedemption[]
+
+  @@index([shopId])
+}
+
+model CouponRedemption {
+  id         String   @id @default(uuid())
+  couponId   String
+  userId     String
+  subOrderId String   @unique
+  discount   Int
+  createdAt  DateTime @default(now())
+  coupon     Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  subOrder   SubOrder @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+
+  @@index([couponId, userId])
 }
 
 enum MessageSenderRole {
@@ -618,6 +675,7 @@ model OrderItem {
   unitPrice  Int // snapshot (bargained price if applicable)
   quantity   Int
   bargained  Boolean     @default(false)
+  flashDealId String? // the flash deal that set unitPrice (its units are given back if the order is cancelled)
   subOrder   SubOrder    @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
   listing    ShopListing @relation(fields: [listingId], references: [id])
 

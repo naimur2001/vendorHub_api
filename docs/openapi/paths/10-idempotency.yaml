@@ -52,6 +52,14 @@ paths:
                       addressId:
                         type: string
                         format: uuid
+                      couponCode:
+                        type: string
+                        pattern: '^[A-Za-z0-9]{4,16}$'
+                        description: |
+                          A coupon of THIS shop. The server checks it and computes the discount on the items
+                          (not the delivery fee). Errors are 400 with error.details.code COUPON_INVALID,
+                          COUPON_NOT_STARTED, COUPON_EXPIRED, COUPON_MIN_ORDER, COUPON_USED_UP or COUPON_ALREADY_USED.
+                          A limited flash deal that sold out meanwhile gives 409 DEAL_SOLD_OUT.
       responses:
         '201':
           description: The checkout with its orders (new, or the stored answer of an earlier identical request).

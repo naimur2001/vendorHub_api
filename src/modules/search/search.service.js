@@ -7,6 +7,7 @@ import { logger } from '../../lib/logger.js';
 import { env } from '../../config/env.js';
 import { processImage } from '../../lib/images.js';
 import { thumbFor } from '../../lib/storage.js';
+import { dealJoin, effectivePriceSql } from '../../lib/deals.js';
 import { embedImage, toVectorLiteral } from '../../lib/clip.js';
 import { identifyProduct } from '../../lib/imageSearch.js';
 
@@ -57,16 +58,19 @@ async function similarProducts(buffer) {
       WHERE i."productId" IS NOT NULL AND i.embedding IS NOT NULL
       GROUP BY i."productId"
     )
-    SELECT p.id, p.slug, p.title, p.images[1] AS image, l.lowest, l.shops, l."bestListingId",
+    SELECT p.id, p.slug, p.title, p.images[1] AS image, l.lowest, l.shops, l."bestListingId", l."dealPrice", l."dealEndsAt",
            COALESCE(photo.score, 0) AS "photoScore",
            COALESCE(1 - (p."titleEmbedding" <=> ${v}::vector), 0) AS "titleScore"
     FROM "Product" p
     JOIN LATERAL (
-      SELECT MIN(sl.price) AS lowest, COUNT(*)::int AS shops,
+      SELECT MIN(${effectivePriceSql('sl')}) AS lowest, COUNT(*)::int AS shops,
              -- the cheapest IN_STOCK listing, else the cheapest (the card's wishlist heart saves it)
-             (ARRAY_AGG(sl.id ORDER BY (sl.availability = 'IN_STOCK') DESC, sl.price ASC, sl.id ASC))[1] AS "bestListingId"
+             (ARRAY_AGG(sl.id ORDER BY (sl.availability = 'IN_STOCK') DESC, ${effectivePriceSql('sl')} ASC, sl.id ASC))[1] AS "bestListingId",
+             MIN(dl."dealPrice") FILTER (WHERE dl."dealPrice" < sl.price) AS "dealPrice",
+             (ARRAY_AGG(dl."endsAt" ORDER BY dl."dealPrice") FILTER (WHERE dl."dealPrice" < sl.price))[1] AS "dealEndsAt"
       FROM "ShopListing" sl
       JOIN "Shop" s ON s.id = sl."shopId"
+      ${dealJoin('sl')}
       WHERE sl."productId" = p.id AND sl."isActive" = true AND s."isActive" = true
     ) l ON l.shops > 0
     LEFT JOIN photo ON photo."productId" = p.id
@@ -85,6 +89,7 @@ async function similarProducts(buffer) {
       thumbnail: r.image ? thumbFor(r.image) : null,
       lowestPrice: r.lowest,
       bestListingId: r.bestListingId ?? null,
+      deal: r.dealPrice != null ? { price: r.dealPrice, endsAt: r.dealEndsAt } : null,
       shopCount: r.shops,
       match: photoScore >= titleScore ? 'photo' : 'title',
       score: Math.round(Math.max(photoScore, titleScore) * 1000) / 1000,
