@@ -41,6 +41,17 @@ export const uploadLimiter = rateLimit({
   message: { success: false, error: { message: 'Too many uploads. Please try again later.' } },
 });
 
+// Order chat: at most 20 messages per minute per user (always on, like uploads).
+export const chatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  skipFailedRequests: true,
+  keyGenerator: (req) => `chat:${req.user.id}`,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { success: false, error: { message: 'Too many messages. Please wait a moment.' } },
+});
+
 // Home banners (admin only): their own allowance, so managing the billboard (at most 12 banners,
 // each with a phone version) never uses up the admin's allowance for market and product photos.
 export const bannerUploadLimiter = rateLimit({

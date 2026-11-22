@@ -135,6 +135,8 @@ components:
           $ref: '#/components/schemas/ReservedUntil'
         confirmBy:
           $ref: '#/components/schemas/ConfirmBy'
+        unreadCount:
+          $ref: '#/components/schemas/UnreadCount'
         shop:
           type: object
           additionalProperties: true

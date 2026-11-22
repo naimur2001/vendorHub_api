@@ -4,6 +4,7 @@ import { assertShopAccess } from '../../lib/shopAccess.js';
 import { deriveAvailability } from '../../lib/availability.js';
 import { getOrder as getCustomerOrder, statusEventsInclude, reservationTimes } from '../checkout/checkout.service.js';
 import { notifyStatusChange, notifyCustomerCancel } from '../notifications/notifications.events.js';
+import { unreadCounts } from '../orderChat/orderChat.service.js';
 
 // Which statuses an order may move to from each status.
 const TRANSITIONS = {
@@ -111,8 +112,9 @@ export async function listShopOrders(user, shopId, { status, paymentStatus, page
       take: limit,
     }),
   ]);
+  const unread = await unreadCounts(rows.map((r) => r.id), 'SHOP'); // unread chat messages from customers
   return {
-    items: rows.map(formatForShop),
+    items: rows.map((r) => ({ ...formatForShop(r), unreadCount: unread.get(r.id) ?? 0 })),
     pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
   };
 }

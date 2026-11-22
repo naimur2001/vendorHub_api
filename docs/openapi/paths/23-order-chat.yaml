@@ -1,0 +1,254 @@
+# Order chat between the customer and the shop. The web polls GET every ~10 s with ?after=<last id>.
+# Messages carry only the sender's role (never a name, email or phone). Sending is limited to
+# 20 messages per minute per user (429). The other side gets an ORDER_MESSAGE notification, at most
+# one per order and person per 5 minutes. 7 days after the order is COMPLETED or CANCELLED the chat
+# closes: sending returns 409 CHAT_CLOSED (reading still works).
+paths:
+  /api/v1/orders/{orderId}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ChatOrderId'
+    get:
+      tags: [Order chat]
+      operationId: listMyOrderMessages
+      summary: Messages of one of my orders (customer), oldest first
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ChatAfter'
+      responses:
+        '200':
+          $ref: '#/components/responses/ChatList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Order chat]
+      operationId: sendMyOrderMessage
+      summary: Write to the shop about one of my orders (customer)
+      security:
+        - bearerAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/ChatSend'
+      responses:
+        '201':
+          $ref: '#/components/responses/ChatSent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ChatClosed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/orders/{orderId}/messages/read:
+    parameters:
+      - $ref: '#/components/parameters/ChatOrderId'
+    post:
+      tags: [Order chat]
+      operationId: readMyOrderMessages
+      summary: Mark the shop's messages as read (customer)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/ChatRead'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/shops/{shopId}/orders/{orderId}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ChatShopId'
+      - $ref: '#/components/parameters/ChatOrderId'
+    get:
+      tags: [Order chat]
+      operationId: listShopOrderMessages
+      summary: Messages of one of the shop's orders (shop owner or staff), oldest first
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ChatAfter'
+      responses:
+        '200':
+          $ref: '#/components/responses/ChatList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Order chat]
+      operationId: sendShopOrderMessage
+      summary: Write to the customer about an order (shop owner or staff)
+      security:
+        - bearerAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/ChatSend'
+      responses:
+        '201':
+          $ref: '#/components/responses/ChatSent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ChatClosed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/shops/{shopId}/orders/{orderId}/messages/read:
+    parameters:
+      - $ref: '#/components/parameters/ChatShopId'
+      - $ref: '#/components/parameters/ChatOrderId'
+    post:
+      tags: [Order chat]
+      operationId: readShopOrderMessages
+      summary: Mark the customer's messages as read (shop owner or staff)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/ChatRead'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  parameters:
+    ChatOrderId:
+      name: orderId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ChatShopId:
+      name: shopId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ChatAfter:
+      name: after
+      in: query
+      required: false
+      description: Only messages after this message id (polling). Without it, the latest 100.
+      schema:
+        type: string
+        format: uuid
+  requestBodies:
+    ChatSend:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [body]
+            properties:
+              body:
+                type: string
+                minLength: 1
+                maxLength: 1000
+                description: Plain text (control characters are removed; shown as text, never as HTML).
+  responses:
+    ChatList:
+      description: Up to 100 messages, oldest first.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                type: object
+                required: [messages, unreadCount, closed]
+                properties:
+                  messages:
+                    type: array
+                    maxItems: 100
+                    items:
+                      $ref: '#/components/schemas/OrderMessage'
+                  unreadCount:
+                    type: integer
+                    description: Messages from the other side not read yet.
+                  closed:
+                    type: boolean
+                    description: true = sending is no longer possible (7 days after COMPLETED or CANCELLED).
+    ChatSent:
+      description: The new message.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                $ref: '#/components/schemas/OrderMessage'
+    ChatRead:
+      description: How many messages were marked read.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                type: object
+                required: [marked]
+                properties:
+                  marked:
+                    type: integer
+    ChatClosed:
+      description: 'The chat closed 7 days after the order ended. error.details.code is CHAT_CLOSED.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    OrderMessage:
+      type: object
+      required: [id, senderRole, mine, body, createdAt, readAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        senderRole:
+          type: string
+          enum: [CUSTOMER, SHOP]
+        mine:
+          type: boolean
+          description: true when the reader's side wrote it.
+        body:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        readAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the other side read it.
+    UnreadCount:
+      type: integer
+      description: Order lists only - unread chat messages from the other side.

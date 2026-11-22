@@ -4,6 +4,7 @@ import { AppError } from '../../lib/errors.js';
 import { presentImage } from '../../lib/storage.js';
 import { mergeSocialLinks, presentSocialLinks, sameSocialLinks } from '../../lib/socialLinks.js';
 import { presentHours } from '../../lib/openingHours.js';
+import { assertShopTeam } from '../../lib/shopAccess.js'; // hours: owner or staff only, not admins
 const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
 async function uniqueShopSlug(name) {
@@ -358,16 +359,6 @@ export async function updateShop(user, shopId, input) {
 
 
 // ---------- opening hours (shop team) ----------
-// Only the shop's own team (owner or staff): admins manage markets, not a shop's daily hours.
-async function assertShopTeam(user, shopId) {
-  const shop = await prisma.shop.findUnique({
-    where: { id: shopId },
-    select: { ownerId: true, staff: { where: { userId: user.id }, select: { userId: true } } },
-  });
-  if (!shop) throw new AppError(404, 'Shop not found');
-  if (shop.ownerId !== user.id && shop.staff.length === 0) throw new AppError(403, 'You do not manage this shop');
-}
-
 export async function setShopHours(user, shopId, { hours, weeklyHoliday }) {
   await assertShopTeam(user, shopId); // 404 unknown shop, 403 not the owner or staff
   const updated = await prisma.$transaction(async (tx) => {

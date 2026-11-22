@@ -12,5 +12,11 @@ export const RESERVATION_HOURS = 2;
 export const RESERVATION_CONFIRM_MINUTES = 30;
 export const MAX_ACTIVE_RESERVATIONS = 3;
 
+// Order chat: messages per page, how long after COMPLETED/CANCELLED it stays open,
+// and at most one "new message" notification per order and side in this time.
+export const CHAT_PAGE = 100;
+export const CHAT_OPEN_DAYS_AFTER_CLOSE = 7;
+export const CHAT_NOTIFY_EVERY_MS = 5 * 60 * 1000;
+
 // At most one price-drop notification per wishlist item in this time.
 export const PRICE_ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000;

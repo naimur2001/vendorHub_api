@@ -474,6 +474,7 @@ model SubOrder {
   returns     ReturnRequest[]
   statusEvents OrderStatusEvent[]
   reservedUntil DateTime? // RESERVE_PICKUP only: the order is cancelled if not COMPLETED by then
+  messages      OrderMessage[]
 
   @@index([shopId, status])
   @@index([checkoutId])
@@ -496,6 +497,27 @@ model WishlistItem {
   @@unique([userId, listingId])
   @@index([listingId])
   @@index([userId, createdAt])
+}
+
+enum MessageSenderRole {
+  CUSTOMER
+  SHOP
+}
+
+// Chat between the customer and the shop about one order. senderUserId is kept for the audit
+// trail only and never returned (no names, emails or phones in messages).
+model OrderMessage {
+  id           String            @id @default(uuid())
+  subOrderId   String
+  senderRole   MessageSenderRole
+  senderUserId String
+  body         String // plain text, 1-1000 characters
+  createdAt    DateTime          @default(now())
+  readAt       DateTime? // set when the OTHER side reads it
+  subOrder     SubOrder          @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+
+  @@index([subOrderId, createdAt])
+  @@index([subOrderId, senderRole, readAt])
 }
 
 enum BannerPlacement {

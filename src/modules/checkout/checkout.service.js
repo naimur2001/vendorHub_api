@@ -4,6 +4,7 @@ import { AppError } from '../../lib/errors.js';
 import { env } from '../../config/env.js';
 import { deriveAvailability } from '../../lib/availability.js';
 import { notifyNewOrders } from '../notifications/notifications.events.js';
+import { unreadCounts } from '../orderChat/orderChat.service.js';
 import { RESERVATION_HOURS, RESERVATION_CONFIRM_MINUTES, MAX_ACTIVE_RESERVATIONS } from '../../config/limits.js';
 
 // a reservation counts against the limit until it is completed or cancelled
@@ -311,8 +312,9 @@ export async function listOrders(userId, { status, page, limit }) {
       take: limit,
     }),
   ]);
+  const unread = await unreadCounts(rows.map((r) => r.id), 'CUSTOMER'); // unread chat messages from the shop
   return {
-    items: rows.map(formatOrder),
+    items: rows.map((r) => ({ ...formatOrder(r), unreadCount: unread.get(r.id) ?? 0 })),
     pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
   };
 }
