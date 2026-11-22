@@ -75,7 +75,7 @@ catch {
 }
 
 $admin = Login 'admin@vendorshub.test'
-$cardKeys = 'coverPhoto,id,levelFloor,logoUrl,market,name,phone,productCount,ratingAverage,reviewCount,shopNumber,slug,socialLinks,verificationLevel,whatsapp'
+$cardKeys = 'coverPhoto,hours,id,levelFloor,logoUrl,market,name,openNow,phone,productCount,ratingAverage,reviewCount,shopNumber,slug,socialLinks,verificationLevel,weeklyHoliday,whatsapp'
 
 # ---- 1. the list without q ----
 $r = Call 'GET' '/shops' $null $null

@@ -1,0 +1,123 @@
+# Shop opening hours (Asia/Dhaka time). Days: 0 = Sunday ... 6 = Saturday.
+# The storefront, market shop cards and shop search cards carry hours, weeklyHoliday and openNow.
+paths:
+  /api/v1/shops/{shopId}/hours:
+    put:
+      tags: [Shops]
+      operationId: setShopHours
+      summary: Set the shop's opening hours and weekly holiday (owner or staff)
+      description: |
+        Replaces both values. `hours: null` removes the hours (openNow becomes null).
+        `weeklyHoliday: null` (or left out) means the market's weekly holiday applies.
+        A closing time at or before the opening time closes after midnight on the next day (e.g. 10:00-01:00); "24:00" means midnight at the end of the day.
+        Only the shop owner or its staff (admins get 403). Audited as shop.hours_updated.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hours]
+              properties:
+                hours:
+                  $ref: '#/components/schemas/OpeningHours'
+                weeklyHoliday:
+                  $ref: '#/components/schemas/WeeklyHoliday'
+            example:
+              hours:
+                - { day: 0, open: '10:00', close: '20:00', closed: false }
+                - { day: 1, open: '10:00', close: '20:00', closed: false }
+                - { day: 2, closed: true }
+                - { day: 3, open: '10:00', close: '20:00', closed: false }
+                - { day: 4, open: '10:00', close: '20:00', closed: false }
+                - { day: 5, open: '15:00', close: '21:00', closed: false }
+                - { day: 6, open: '10:00', close: '20:00', closed: false }
+              weeklyHoliday: 2
+      responses:
+        '200':
+          description: The saved hours, as the public answers show them.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [hours, weeklyHoliday, openNow, ownWeeklyHoliday]
+                    properties:
+                      hours:
+                        $ref: '#/components/schemas/OpeningHours'
+                      weeklyHoliday:
+                        allOf:
+                          - $ref: '#/components/schemas/WeeklyHoliday'
+                        description: The holiday that applies (the shop's own, else the market's).
+                      openNow:
+                        $ref: '#/components/schemas/OpenNow'
+                      ownWeeklyHoliday:
+                        allOf:
+                          - $ref: '#/components/schemas/WeeklyHoliday'
+                        description: The shop's own setting (null = uses the market's).
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  schemas:
+    OpeningDay:
+      type: object
+      required: [day, open, close, closed]
+      properties:
+        day:
+          type: integer
+          minimum: 0
+          maximum: 6
+          description: 0 = Sunday ... 6 = Saturday
+        open:
+          type: string
+          nullable: true
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          example: '10:00'
+          description: Null on a closed day.
+        close:
+          type: string
+          nullable: true
+          pattern: '^(([01]\d|2[0-3]):[0-5]\d|24:00)$'
+          example: '20:00'
+          description: Not equal to open. Earlier than open = closes after midnight (next day). "24:00" = midnight at the end of the day. Null on a closed day.
+        closed:
+          type: boolean
+    OpeningHours:
+      type: array
+      nullable: true
+      minItems: 7
+      maxItems: 7
+      description: Exactly 7 days (each 0-6 once), sorted by day. Null when the shop has not set its hours.
+      items:
+        $ref: '#/components/schemas/OpeningDay'
+    WeeklyHoliday:
+      type: integer
+      nullable: true
+      minimum: 0
+      maximum: 6
+      description: 0 = Sunday ... 6 = Saturday; null = none.
+    OpenNow:
+      type: boolean
+      nullable: true
+      description: Open at this moment in Asia/Dhaka time (false on the weekly holiday). Null when no hours are set.

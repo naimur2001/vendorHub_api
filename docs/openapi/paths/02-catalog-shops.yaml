@@ -819,7 +819,14 @@ components:
           description: True when an admin checked the photo against the real shop.
     ShopCard:
       type: object
+      required: [hours, weeklyHoliday, openNow]
       properties:
+        hours:
+          $ref: '#/components/schemas/OpeningHours'
+        weeklyHoliday:
+          $ref: '#/components/schemas/WeeklyHoliday'
+        openNow:
+          $ref: '#/components/schemas/OpenNow'
         id:
           type: string
           format: uuid
@@ -918,8 +925,14 @@ components:
           example: https://techzone.example.com/
     Storefront:
       type: object
-      required: [phone, whatsapp, socialLinks]
+      required: [phone, whatsapp, socialLinks, hours, weeklyHoliday, openNow]
       properties:
+        hours:
+          $ref: '#/components/schemas/OpeningHours'
+        weeklyHoliday:
+          $ref: '#/components/schemas/WeeklyHoliday'
+        openNow:
+          $ref: '#/components/schemas/OpenNow'
         id:
           type: string
           format: uuid

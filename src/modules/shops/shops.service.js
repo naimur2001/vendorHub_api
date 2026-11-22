@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { presentImage } from '../../lib/storage.js';
 import { mergeSocialLinks, presentSocialLinks, sameSocialLinks } from '../../lib/socialLinks.js';
+import { presentHours } from '../../lib/openingHours.js';
 const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
 async function uniqueShopSlug(name) {
@@ -65,19 +66,23 @@ export async function getMarket(slug) {
           shopNumber: true,
           addressLine: true,
           verificationLevel: true,
+          hours: true,
+          weeklyHoliday: true,
           photos: { where: { isCover: true }, take: 1, select: { url: true, kind: true, verifiedAt: true } },
         },
       },
     },
   });
   if (!market) throw new AppError(404, 'Market not found');
-  // each shop card gets its cover photo (or null)
+  // each shop card gets its cover photo (or null) and its hours (the market's holiday when it has none)
+  const now = new Date();
   return {
       ...market,
     imageId: undefined, // internal reference, not part of the answer
     image: presentImage(market.image),
-    shops: market.shops.map(({ photos, ...s }) => ({
+    shops: market.shops.map(({ photos, hours, weeklyHoliday, ...s }) => ({
       ...s,
+      ...presentHours({ hours, weeklyHoliday, market }, now),
       coverPhoto: photos[0] ? { url: photos[0].url, kind: photos[0].kind, verified: photos[0].verifiedAt !== null } : null,
     })),
   };
@@ -88,7 +93,7 @@ export async function getShop(slug, userId) {
   const shop = await prisma.shop.findFirst({
     where: { slug, isActive: true },
     include: {
-      market: { select: { id: true, name: true, slug: true } },
+      market: { select: { id: true, name: true, slug: true, weeklyHoliday: true } },
       _count: { select: { followers: true, staff: true, photos: true } },
       photos: { where: { isCover: true }, take: 1, select: { url: true, kind: true, verifiedAt: true } },
     },
@@ -136,7 +141,8 @@ export async function getShop(slug, userId) {
     phone: shop.phone,
     whatsapp: shop.whatsapp,
     socialLinks: presentSocialLinks(shop.socialLinks),
-    market: shop.market,
+    market: shop.market && { id: shop.market.id, name: shop.market.name, slug: shop.market.slug },
+    ...presentHours(shop),
     verification: { level: shop.verificationLevel, lastAuditedAt: shop.lastAuditedAt },
     supportsDelivery: shop.supportsDelivery,
     supportsPickup: shop.supportsPickup,
@@ -343,6 +349,39 @@ export async function updateShop(user, shopId, input) {
 
 
 
+// ---------- opening hours (shop team) ----------
+// Only the shop's own team (owner or staff): admins manage markets, not a shop's daily hours.
+async function assertShopTeam(user, shopId) {
+  const shop = await prisma.shop.findUnique({
+    where: { id: shopId },
+    select: { ownerId: true, staff: { where: { userId: user.id }, select: { userId: true } } },
+  });
+  if (!shop) throw new AppError(404, 'Shop not found');
+  if (shop.ownerId !== user.id && shop.staff.length === 0) throw new AppError(403, 'You do not manage this shop');
+}
+
+export async function setShopHours(user, shopId, { hours, weeklyHoliday }) {
+  await assertShopTeam(user, shopId); // 404 unknown shop, 403 not the owner or staff
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.shop.update({
+      where: { id: shopId },
+      data: { hours: hours ?? Prisma.DbNull, weeklyHoliday },
+      select: { hours: true, weeklyHoliday: true, market: { select: { weeklyHoliday: true } } },
+    });
+    await tx.auditLog.create({
+      data: {
+        actorId: user.id,
+        action: 'shop.hours_updated',
+        entityType: 'Shop',
+        entityId: shopId,
+        meta: { hoursSet: hours !== null, closedDays: hours ? hours.filter((d) => d.closed).length : null, weeklyHoliday },
+      },
+    });
+    return row;
+  });
+  return { ...presentHours(updated), ownWeeklyHoliday: updated.weeklyHoliday };
+}
+
 // ---------- public shop search ----------
 
 // "%" and "_" (and the escape character itself) in a search text are normal characters, not wildcards.
@@ -400,7 +439,9 @@ export async function searchShops({ q, marketId, verifiedOnly, page, limit }) {
             whatsapp: true,
             socialLinks: true,
             verificationLevel: true,
-            market: { select: { id: true, name: true, slug: true } },
+            hours: true,
+            weeklyHoliday: true,
+            market: { select: { id: true, name: true, slug: true, weeklyHoliday: true } },
             photos: { where: { isCover: true }, take: 1, select: { url: true, kind: true, verifiedAt: true } },
           },
         }),
@@ -423,6 +464,7 @@ export async function searchShops({ q, marketId, verifiedOnly, page, limit }) {
   const countOf = new Map(listingCounts.map((c) => [c.shopId, c._count._all]));
 
   // Built field by field, in the SQL order, so nothing extra can slip into the answer.
+  const now = new Date(); // one moment for the whole page, so openNow is consistent
   const items = ids.map((id) => {
     const s = shopOf.get(id);
     const cover = s.photos[0];
@@ -438,7 +480,8 @@ export async function searchShops({ q, marketId, verifiedOnly, page, limit }) {
       whatsapp: s.whatsapp,
       socialLinks: presentSocialLinks(s.socialLinks),
       verificationLevel: s.verificationLevel,
-      market: s.market,
+      market: s.market && { id: s.market.id, name: s.market.name, slug: s.market.slug },
+      ...presentHours(s, now),
       coverPhoto: cover ? { url: cover.url, kind: cover.kind, verified: cover.verifiedAt !== null } : null,
       ratingAverage: rating ? round1(rating._avg.rating) : null,
       reviewCount: rating ? rating._count.rating : 0,

@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { SOCIAL_KEYS, checkSocialLink } from '../../lib/socialLinks.js';
 import { districtKey } from '../../lib/districts.js';
+import { hoursSchema, weekday } from '../../lib/openingHours.js';
+
+// PUT replaces both: hours null = not set (openNow null); weeklyHoliday null = use the market's.
+export const shopHoursSchema = z.object({
+  hours: hoursSchema.nullable(),
+  weeklyHoliday: weekday.nullable().default(null),
+});
 
 const bool = z.enum(['true', 'false']).transform((v) => v === 'true');
 

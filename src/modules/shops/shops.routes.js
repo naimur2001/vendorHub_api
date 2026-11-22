@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { validate, validateQuery } from '../../middlewares/validate.js';
 import { authenticate, optionalAuth, requireRole } from '../../middlewares/auth.js';
-import { marketsQuery, shopProductsQuery, shopReviewsQuery, shopSearchQuery, createShopSchema, updateShopSchema } from './shops.schema.js';
+import { marketsQuery, shopProductsQuery, shopReviewsQuery, shopSearchQuery, createShopSchema, updateShopSchema, shopHoursSchema } from './shops.schema.js';
 import * as c from './shops.controller.js';
 import { requireVerifiedEmail } from '../../middlewares/verifiedEmail.js';
 import { uploadLimiter } from '../../middlewares/rateLimit.js';
@@ -21,6 +21,8 @@ router.get('/shops/:slug/reviews', validateQuery(shopReviewsQuery), c.shopReview
 router.post('/shops/:slug/follow', authenticate, c.follow);
 router.delete('/shops/:slug/follow', authenticate, c.unfollow);
 router.patch('/shops/:shopId', authenticate, requireRole('SHOP_OWNER', 'ADMIN'), validate(updateShopSchema), c.updateShop);
+// opening hours: only the shop team (owner or staff); checked in the service
+router.put('/shops/:shopId/hours', authenticate, validate(shopHoursSchema), c.setHours);
 router.put('/shops/:shopId/logo', ...ownerOrAdmin, uploadLimiter, receivePhoto, c.setLogo);
 router.delete('/shops/:shopId/logo', ...ownerOrAdmin, c.removeLogo);
 router.put('/shops/:shopId/banner', ...ownerOrAdmin, uploadLimiter, receivePhoto, c.setBanner);

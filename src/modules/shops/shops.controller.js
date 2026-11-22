@@ -46,6 +46,12 @@ export const updateShop = async (req, res) => {
 };
 
 
+// opening hours (shop team)
+export const setHours = async (req, res) => {
+  const data = await shopService.setShopHours(req.user, req.params.shopId, req.body);
+  res.json({ success: true, data });
+};
+
 // public shop search
 export const searchShops = async (req, res) => {
   const { items, pagination } = await shopService.searchShops(req.validated);

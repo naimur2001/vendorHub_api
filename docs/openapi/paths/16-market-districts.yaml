@@ -84,6 +84,8 @@ paths:
                   type: number
                   minimum: -180
                   maximum: 180
+                weeklyHoliday:
+                  $ref: '#/components/schemas/WeeklyHoliday'
       responses:
         '201':
           description: The new market.
@@ -127,6 +129,8 @@ paths:
               type: object
               minProperties: 1
               properties:
+                weeklyHoliday:
+                  $ref: '#/components/schemas/WeeklyHoliday'
                 name:
                   type: string
                   minLength: 2
@@ -276,6 +280,10 @@ components:
         shopCount:
           type: integer
           description: List answer only (active shops).
+        weeklyHoliday:
+          allOf:
+            - $ref: '#/components/schemas/WeeklyHoliday'
+          description: Detail answer only. Shops without their own weekly holiday use this one.
         image:
           allOf:
             - $ref: '#/components/schemas/ImageObject'
@@ -283,8 +291,10 @@ components:
     AdminMarket:
       type: object
       description: The stored market, as answered by the admin create and edit calls.
-      required: [id, name, slug, city, district, address, latitude, longitude, imageId]
+      required: [id, name, slug, city, district, address, latitude, longitude, imageId, weeklyHoliday]
       properties:
+        weeklyHoliday:
+          $ref: '#/components/schemas/WeeklyHoliday'
         id:
           type: string
           format: uuid

@@ -174,6 +174,7 @@ model Market {
   slug      String  @unique
   city      String
   district  String // one key from src/lib/districts.js (the 64 districts), validated by the API
+  weeklyHoliday Int? // 0 = Sunday ... 6 = Saturday; shops without their own use this
   address   String?
   latitude  Float?
   longitude Float?
@@ -204,6 +205,8 @@ model Shop {
   phone             String? // public shop phone, BD mobile 01XXXXXXXXX (required for new shops)
   whatsapp          String? // same format
   socialLinks       Json? // { facebook, instagram, tiktok, youtube, website }: validated https links
+  hours             Json? // 7 x { day 0-6, open "HH:mm", close "HH:mm", closed }; Asia/Dhaka time
+  weeklyHoliday     Int? // 0 = Sunday ... 6 = Saturday; null = use the market's
   latitude          Float?
   longitude         Float?
   verificationLevel VerificationLevel @default(UNVERIFIED)

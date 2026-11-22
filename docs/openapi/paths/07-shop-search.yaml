@@ -83,7 +83,16 @@ components:
         - ratingAverage
         - reviewCount
         - productCount
+        - hours
+        - weeklyHoliday
+        - openNow
       properties:
+        hours:
+          $ref: '#/components/schemas/OpeningHours'
+        weeklyHoliday:
+          $ref: '#/components/schemas/WeeklyHoliday'
+        openNow:
+          $ref: '#/components/schemas/OpenNow'
         id:
           type: string
           format: uuid

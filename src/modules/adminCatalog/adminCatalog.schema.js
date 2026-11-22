@@ -30,6 +30,7 @@ export const marketSchema = z.object({
   address: z.string().trim().max(200).optional(),
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
+  weeklyHoliday: z.number().int().min(0).max(6).nullable().optional(), // 0 = Sunday ... 6 = Saturday
 });
 
 export const marketUpdateSchema = z
@@ -40,6 +41,7 @@ export const marketUpdateSchema = z
     address: z.string().trim().max(200).nullable().optional(),
     latitude: z.number().min(-90).max(90).nullable().optional(),
     longitude: z.number().min(-180).max(180).nullable().optional(),
+    weeklyHoliday: z.number().int().min(0).max(6).nullable().optional(), // null = no market holiday
   })
   .refine(nonEmpty, nonEmptyMsg);
 
