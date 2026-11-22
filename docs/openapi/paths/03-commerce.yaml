@@ -352,7 +352,7 @@ paths:
                         format: uuid
                       deliveryMethod:
                         type: string
-                        enum: [STORE_PICKUP, VENDOR_DELIVERY]
+                        enum: [STORE_PICKUP, VENDOR_DELIVERY, RESERVE_PICKUP]
                       paymentMethod:
                         type: string
                         enum: [ONLINE, PAY_AT_STORE, CASH_ON_DELIVERY]
@@ -1732,7 +1732,7 @@ components:
           $ref: '#/components/schemas/PaymentStatus'
         deliveryMethod:
           type: string
-          enum: [STORE_PICKUP, VENDOR_DELIVERY]
+          enum: [STORE_PICKUP, VENDOR_DELIVERY, RESERVE_PICKUP]
         deliveryAddress:
           type: string
           nullable: true
@@ -1740,6 +1740,10 @@ components:
           type: integer
         total:
           type: integer
+        reservedUntil:
+          $ref: '#/components/schemas/ReservedUntil'
+        confirmBy:
+          $ref: '#/components/schemas/ConfirmBy'
         items:
           type: array
           items:

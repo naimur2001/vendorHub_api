@@ -4,6 +4,19 @@ import { AppError } from '../../lib/errors.js';
 import { env } from '../../config/env.js';
 import { deriveAvailability } from '../../lib/availability.js';
 import { notifyNewOrders } from '../notifications/notifications.events.js';
+import { RESERVATION_HOURS, RESERVATION_CONFIRM_MINUTES, MAX_ACTIVE_RESERVATIONS } from '../../config/limits.js';
+
+// a reservation counts against the limit until it is completed or cancelled
+const OPEN_STATUSES = ['PLACED', 'CONFIRMED', 'READY_FOR_PICKUP'];
+
+// Reservation deadlines for an answer: the shop must confirm by confirmBy; it is cancelled at reservedUntil.
+export const reservationTimes = (o) =>
+  o.deliveryMethod === 'RESERVE_PICKUP'
+    ? {
+        reservedUntil: o.reservedUntil,
+        confirmBy: new Date(o.createdAt.getTime() + RESERVATION_CONFIRM_MINUTES * 60 * 1000),
+      }
+    : { reservedUntil: null, confirmBy: null };
 
 const DELIVERY_FEE = 60; // taka, charged once per shop that delivers
 
@@ -42,6 +55,7 @@ const formatOrder = (o) => ({
   subtotal: o.subtotal,
   total: o.total,
   createdAt: o.createdAt,
+  ...reservationTimes(o),
   shop: o.shop,
   items: o.items.map((i) => ({
     id: i.id,
@@ -151,14 +165,33 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
           if (!shop.supportsDelivery) throw new AppError(400, `${shop.name} does not offer delivery`);
           if (!c.deliveryAddress) throw new AppError(400, `A delivery address is required for ${shop.name}`);
         }
-        if (c.deliveryMethod === 'STORE_PICKUP' && !shop.supportsPickup) {
+        const pickup = c.deliveryMethod === 'STORE_PICKUP' || c.deliveryMethod === 'RESERVE_PICKUP';
+        if (pickup && !shop.supportsPickup) {
           throw new AppError(400, `${shop.name} does not offer store pickup`);
         }
-        if (c.paymentMethod === 'PAY_AT_STORE' && c.deliveryMethod !== 'STORE_PICKUP') {
+        if (c.deliveryMethod === 'RESERVE_PICKUP' && c.paymentMethod !== 'PAY_AT_STORE') {
+          throw new AppError(400, 'A reservation is paid at the store: use PAY_AT_STORE');
+        }
+        if (c.paymentMethod === 'PAY_AT_STORE' && !pickup) {
           throw new AppError(400, 'Pay at store is only available with store pickup');
         }
         if (c.paymentMethod === 'CASH_ON_DELIVERY' && c.deliveryMethod !== 'VENDOR_DELIVERY') {
           throw new AppError(400, 'Cash on delivery is only available with vendor delivery');
+        }
+      }
+
+      // 3b. At most MAX_ACTIVE_RESERVATIONS open reservations per customer (this checkout included).
+      //     One checkout at a time per customer, so two parallel checkouts cannot both pass.
+      const newReservations = choices.filter((c) => c.deliveryMethod === 'RESERVE_PICKUP').length;
+      if (newReservations > 0) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`reserve:${userId}`}))`;
+        const open = await tx.subOrder.count({
+          where: { checkout: { userId }, deliveryMethod: 'RESERVE_PICKUP', status: { in: OPEN_STATUSES } },
+        });
+        if (open + newReservations > MAX_ACTIVE_RESERVATIONS) {
+          throw new AppError(409, `You can have at most ${MAX_ACTIVE_RESERVATIONS} open reservations`, {
+            code: 'RESERVATION_LIMIT',
+          });
         }
       }
 
@@ -207,6 +240,9 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
             total,
             paymentMethod: c.paymentMethod,
             paymentStatus: 'PENDING',
+            ...(c.deliveryMethod === 'RESERVE_PICKUP' && {
+              reservedUntil: new Date(Date.now() + RESERVATION_HOURS * 60 * 60 * 1000),
+            }),
             statusEvents: { create: [{ status: 'PLACED', actorRole: 'CUSTOMER' }] },
             items: {
               create: lines.map(({ listingId, title, unitPrice, quantity, bargained }) => ({

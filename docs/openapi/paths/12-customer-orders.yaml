@@ -121,7 +121,7 @@ components:
           $ref: '#/components/schemas/PaymentStatus'
         deliveryMethod:
           type: string
-          enum: [STORE_PICKUP, VENDOR_DELIVERY]
+          enum: [STORE_PICKUP, VENDOR_DELIVERY, RESERVE_PICKUP]
         deliveryAddress:
           type: string
           nullable: true
@@ -131,6 +131,10 @@ components:
           type: integer
         total:
           type: integer
+        reservedUntil:
+          $ref: '#/components/schemas/ReservedUntil'
+        confirmBy:
+          $ref: '#/components/schemas/ConfirmBy'
         shop:
           type: object
           additionalProperties: true

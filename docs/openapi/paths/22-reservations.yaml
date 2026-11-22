@@ -1,0 +1,20 @@
+# Reserve for pickup (deliveryMethod RESERVE_PICKUP, paymentMethod PAY_AT_STORE).
+# Nothing is paid now. The shop must CONFIRM within 30 minutes, else the order is cancelled
+# ("Shop did not confirm"); if it is not COMPLETED by reservedUntil (2 hours after ordering) it is
+# cancelled ("Reservation expired"). Both put the stock back, add a CANCELLED status event with
+# actorRole SYSTEM and the reason as note, and notify the customer and the shop team.
+# At most 3 open reservations per customer (409, error.details.code RESERVATION_LIMIT).
+paths: {}
+
+components:
+  schemas:
+    ReservedUntil:
+      type: string
+      format: date-time
+      nullable: true
+      description: RESERVE_PICKUP only (else null) - the reservation is cancelled if the order is not COMPLETED by then.
+    ConfirmBy:
+      type: string
+      format: date-time
+      nullable: true
+      description: RESERVE_PICKUP only (else null) - the shop must confirm by then (30 minutes after ordering).

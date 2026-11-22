@@ -41,7 +41,7 @@ paths:
                         format: uuid
                       deliveryMethod:
                         type: string
-                        enum: [STORE_PICKUP, VENDOR_DELIVERY]
+                        enum: [STORE_PICKUP, VENDOR_DELIVERY, RESERVE_PICKUP]
                       paymentMethod:
                         type: string
                         enum: [ONLINE, PAY_AT_STORE, CASH_ON_DELIVERY]
@@ -74,7 +74,9 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '409':
-          description: Out of stock or changed prices, or "This order is already being placed" (same key still running).
+          description: |
+            Out of stock or changed prices, or "This order is already being placed" (same key still running),
+            or more than 3 open reservations (RESERVE_PICKUP): error.details.code RESERVATION_LIMIT.
           content:
             application/json:
               schema:

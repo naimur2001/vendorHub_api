@@ -2,7 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { assertShopAccess } from '../../lib/shopAccess.js';
 import { deriveAvailability } from '../../lib/availability.js';
-import { getOrder as getCustomerOrder, statusEventsInclude } from '../checkout/checkout.service.js';
+import { getOrder as getCustomerOrder, statusEventsInclude, reservationTimes } from '../checkout/checkout.service.js';
 import { notifyStatusChange, notifyCustomerCancel } from '../notifications/notifications.events.js';
 
 // Which statuses an order may move to from each status.
@@ -23,7 +23,7 @@ const orderInclude = {
 // The statuses this order may move to right now (also tells the UI which buttons to show).
 function allowedNext(order) {
   return TRANSITIONS[order.status].filter((next) => {
-    if (next === 'READY_FOR_PICKUP') return order.deliveryMethod === 'STORE_PICKUP';
+    if (next === 'READY_FOR_PICKUP') return order.deliveryMethod !== 'VENDOR_DELIVERY'; // STORE_PICKUP or RESERVE_PICKUP
     if (next === 'OUT_FOR_DELIVERY') return order.deliveryMethod === 'VENDOR_DELIVERY';
     if (next === 'CONFIRMED') return order.paymentMethod !== 'ONLINE' || order.paymentStatus === 'PAID';
     return true;
@@ -42,6 +42,7 @@ const formatForShop = (o) => ({
   subtotal: o.subtotal,
   total: o.total,
   createdAt: o.createdAt,
+  ...reservationTimes(o),
   customer: { name: o.checkout.user.name, phone: o.checkout.user.phone },
   items: o.items.map((i) => ({
     id: i.id,
@@ -143,7 +144,7 @@ export async function changeStatus(user, shopId, orderId, { status, reason }) {
   if (!TRANSITIONS[order.status].includes(status)) {
     throw new AppError(409, `An order that is ${order.status} cannot move to ${status}`);
   }
-  if (status === 'READY_FOR_PICKUP' && order.deliveryMethod !== 'STORE_PICKUP') {
+  if (status === 'READY_FOR_PICKUP' && order.deliveryMethod === 'VENDOR_DELIVERY') {
     throw new AppError(409, 'Only pickup orders can be marked ready for pickup');
   }
   if (status === 'OUT_FOR_DELIVERY' && order.deliveryMethod !== 'VENDOR_DELIVERY') {

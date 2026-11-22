@@ -4,6 +4,7 @@ import { logger } from './lib/logger.js';
 import { prisma } from './lib/prisma.js';
 import { expireStaleBargains } from './modules/bargains/bargains.service.js';
 import { runAccountDeletionJobs } from './modules/users/accountDeletion.job.js';
+import { runReservationSweep } from './jobs/reservations.js';
 const server = app.listen(env.PORT, () => {
   logger.info(`API running on http://localhost:${env.PORT}`);
 });
@@ -13,6 +14,10 @@ const sweeper = setInterval(() => {
   expireStaleBargains().catch((err) => logger.error(err, 'expireStaleBargains failed'));
 }, 60 * 1000);
 sweeper.unref();
+
+// Reserve for pickup: cancel reservations the shop did not confirm in time, or that ran out.
+const reservationJob = setInterval(runReservationSweep, 60 * 1000);
+reservationJob.unref();
 
 
 // Account deletion: reminders and anonymisation, hourly (cheap: it only looks at accounts that are due).
@@ -28,6 +33,7 @@ setTimeout(runDeletions, 60 * 1000).unref(); // also shortly after start
 function shutdown(signal) {
   logger.info(`${signal} received, shutting down`);
   clearInterval(sweeper);
+  clearInterval(reservationJob);
   clearInterval(deletionJob);
   server.close(async () => {
     await prisma.$disconnect();

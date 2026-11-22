@@ -67,6 +67,7 @@ enum OfferActor {
 enum DeliveryMethod {
   STORE_PICKUP
   VENDOR_DELIVERY
+  RESERVE_PICKUP // reserved for a limited time, paid at the store; see src/jobs/reservations.js
 }
 
 enum PaymentMethod {
@@ -472,9 +473,11 @@ model SubOrder {
   completedAt DateTime?
   returns     ReturnRequest[]
   statusEvents OrderStatusEvent[]
+  reservedUntil DateTime? // RESERVE_PICKUP only: the order is cancelled if not COMPLETED by then
 
   @@index([shopId, status])
   @@index([checkoutId])
+  @@index([deliveryMethod, status, reservedUntil])
 }
 
 // A customer's saved listing. priceAtSave stays the price the customer saw (so priceDropped keeps

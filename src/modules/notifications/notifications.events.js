@@ -83,7 +83,7 @@ export async function notifyNewOrders(customerId, checkoutId) {
     });
     for (const o of orders) {
       const units = o.items.reduce((n, i) => n + i.quantity, 0);
-      const how = o.deliveryMethod === 'STORE_PICKUP' ? 'store pickup' : 'delivery';
+      const how = { STORE_PICKUP: 'store pickup', RESERVE_PICKUP: 'reservation, confirm within 30 minutes' }[o.deliveryMethod] ?? 'delivery';
       await notify(await shopTeamIds(o.shopId), {
         type: 'ORDER_NEW',
         title: `New order ${o.orderNumber}`,

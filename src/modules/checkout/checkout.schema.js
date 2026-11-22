@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 const shopChoice = z.object({
   shopId: z.string().uuid(),
-  deliveryMethod: z.enum(['STORE_PICKUP', 'VENDOR_DELIVERY']),
+  // RESERVE_PICKUP: held for RESERVATION_HOURS, always paid at the store (PAY_AT_STORE)
+  deliveryMethod: z.enum(['STORE_PICKUP', 'VENDOR_DELIVERY', 'RESERVE_PICKUP']),
   paymentMethod: z.enum(['ONLINE', 'PAY_AT_STORE', 'CASH_ON_DELIVERY']),
   // deliveryAddress: z.string().trim().min(10).max(300).optional(),
     deliveryAddress: z.string().trim().min(10).max(300).optional(),
