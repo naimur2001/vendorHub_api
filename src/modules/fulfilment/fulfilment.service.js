@@ -2,7 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { assertShopAccess } from '../../lib/shopAccess.js';
 import { deriveAvailability } from '../../lib/availability.js';
-import { getOrder as getCustomerOrder } from '../checkout/checkout.service.js';
+import { getOrder as getCustomerOrder, statusEventsInclude } from '../checkout/checkout.service.js';
 import { notifyStatusChange, notifyCustomerCancel } from '../notifications/notifications.events.js';
 
 // Which statuses an order may move to from each status.
@@ -120,11 +120,17 @@ export async function getShopOrder(user, shopId, orderId) {
   await assertShopAccess(user, shopId);
   const order = await prisma.subOrder.findFirst({
     where: { id: orderId, shopId },
-    include: orderInclude,
+    include: { ...orderInclude, statusEvents: statusEventsInclude },
   });
   if (!order) throw new AppError(404, 'Order not found');
-  return formatForShop(order);
+  return { ...formatForShop(order), statusEvents: order.statusEvents };
 }
+
+// One timeline row, written in the same transaction as the status change.
+const addEvent = (tx, subOrderId, status, actorRole, note) =>
+  tx.orderStatusEvent.create({
+    data: { subOrderId, status, actorRole, note: note || null },
+  });
 
 export async function changeStatus(user, shopId, orderId, { status, reason }) {
   await assertShopAccess(user, shopId);
@@ -165,6 +171,8 @@ export async function changeStatus(user, shopId, orderId, { status, reason }) {
     if (status === 'COMPLETED' && order.paymentMethod !== 'ONLINE') {
       await tx.subOrder.update({ where: { id: orderId }, data: { paymentStatus: 'PAID' } });
     }
+    // the guarded update above means the status really changed (same status is never a transition)
+    await addEvent(tx, orderId, status, 'SHOP', status === 'CANCELLED' ? reason : null);
     await logChange(tx, user.id, 'order.status_changed', orderId, order.status, status, reason);
   });
   await notifyStatusChange(order, status, reason); // after the commit, never throws
@@ -191,6 +199,7 @@ export async function cancelByCustomer(userId, orderId, reason) {
       throw new AppError(409, 'This order just changed. Refresh and try again.');
     }
     await cancelEffects(tx, order);
+    await addEvent(tx, orderId, 'CANCELLED', 'CUSTOMER', reason);
     await logChange(tx, userId, 'order.cancelled_by_customer', orderId, 'PLACED', 'CANCELLED', reason);
   });
   await notifyCustomerCancel(order, reason); // after the commit, never throws

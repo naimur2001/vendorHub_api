@@ -1,0 +1,111 @@
+# Order tracking: the status timeline on both order detail endpoints.
+# Overrides the GET of /orders/{orderId} and /shops/{shopId}/orders/{orderId}.
+paths:
+  /api/v1/orders/{orderId}:
+    get:
+      tags: [Orders]
+      operationId: getMyOrder
+      summary: One of my orders, with the shop's address, the items and the tracking timeline
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The order (someone else's order is 404).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/CustomerOrderDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/shops/{shopId}/orders/{orderId}:
+    get:
+      tags: [Fulfilment]
+      operationId: getShopOrder
+      summary: One of the shop's orders, with the allowed next statuses and the tracking timeline
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The order (another shop's order is 404).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ShopOrderDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  schemas:
+    OrderStatusEvent:
+      type: object
+      required: [status, note, actorRole, createdAt]
+      properties:
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        note:
+          type: string
+          nullable: true
+          description: Short reason, e.g. the cancel reason.
+        actorRole:
+          type: string
+          nullable: true
+          enum: [CUSTOMER, SHOP, SYSTEM, null]
+          description: Who made the change. SYSTEM for rows backfilled from older orders.
+        createdAt:
+          type: string
+          format: date-time
+    OrderStatusTimeline:
+      type: object
+      required: [statusEvents]
+      properties:
+        statusEvents:
+          type: array
+          description: Every status change, oldest first. The first entry is always PLACED.
+          items:
+            $ref: '#/components/schemas/OrderStatusEvent'
+    CustomerOrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/CustomerOrder'
+        - $ref: '#/components/schemas/OrderStatusTimeline'
+    ShopOrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/Order'
+        - $ref: '#/components/schemas/OrderStatusTimeline'

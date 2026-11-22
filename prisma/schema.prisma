@@ -466,9 +466,23 @@ model SubOrder {
   payments    Payment[]
   completedAt DateTime?
   returns     ReturnRequest[]
+  statusEvents OrderStatusEvent[]
 
   @@index([shopId, status])
   @@index([checkoutId])
+}
+
+// One row per status change, for the customer's tracking timeline.
+model OrderStatusEvent {
+  id         String      @id @default(uuid())
+  subOrderId String
+  status     OrderStatus
+  note       String? // optional short reason, e.g. the cancel reason
+  actorRole  String? // "CUSTOMER" | "SHOP" | "SYSTEM" (no user ids exposed)
+  createdAt  DateTime    @default(now())
+  subOrder   SubOrder    @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+
+  @@index([subOrderId, createdAt])
 }
 
 model OrderItem {

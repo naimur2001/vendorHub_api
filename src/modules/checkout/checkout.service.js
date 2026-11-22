@@ -207,6 +207,7 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
             total,
             paymentMethod: c.paymentMethod,
             paymentStatus: 'PENDING',
+            statusEvents: { create: [{ status: 'PLACED', actorRole: 'CUSTOMER' }] },
             items: {
               create: lines.map(({ listingId, title, unitPrice, quantity, bargained }) => ({
                 listingId,
@@ -280,18 +281,25 @@ export async function listOrders(userId, { status, page, limit }) {
   };
 }
 
+// The tracking timeline: no ids, no user data, oldest first.
+export const statusEventsInclude = {
+  select: { status: true, note: true, actorRole: true, createdAt: true },
+  orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+};
+
 // 404 (not 403) for someone else's order, so order ids cannot be probed
-async function findOwnOrder(userId, orderId) {
+async function findOwnOrder(userId, orderId, extraInclude = {}) {
   const order = await prisma.subOrder.findFirst({
     where: { id: orderId, checkout: { userId } },
-    include: orderInclude,
+    include: { ...orderInclude, ...extraInclude },
   });
   if (!order) throw new AppError(404, 'Order not found');
   return order;
 }
 
 export async function getOrder(userId, orderId) {
-  return formatOrder(await findOwnOrder(userId, orderId));
+  const order = await findOwnOrder(userId, orderId, { statusEvents: statusEventsInclude });
+  return { ...formatOrder(order), statusEvents: order.statusEvents };
 }
 
 // Stands in for the payment gateway until a real one is connected (MOCK_PAYMENTS=false turns it off).

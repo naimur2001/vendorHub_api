@@ -62,6 +62,7 @@ async function clean() {
     prisma.passwordResetToken.deleteMany(),
     prisma.fileUpload.deleteMany(),
     // orders and carts
+    prisma.orderStatusEvent.deleteMany(),
     prisma.payment.deleteMany(),
     prisma.orderItem.deleteMany(),
     prisma.subOrder.deleteMany(),
