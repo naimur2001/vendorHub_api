@@ -55,6 +55,7 @@ paths:
       description: Admin accounts cannot be created here. With the header X-Auth-Mode set to cookie, the refresh token goes into an httpOnly cookie.
       parameters:
         - $ref: '#/components/parameters/XAuthMode'
+        - $ref: '#/components/parameters/XDeviceId'
       requestBody:
         required: true
         content:
@@ -63,6 +64,10 @@ paths:
               type: object
               required: [name, email, password]
               properties:
+                referralCode:
+                  type: string
+                  pattern: '^[A-Za-z0-9]{6,12}$'
+                  description: A friend's code (customers). A wrong or self-referral code never blocks the signup; it just earns nothing.
                 name:
                   type: string
                   minLength: 2

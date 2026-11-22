@@ -66,7 +66,7 @@ router.post(
   authenticate,
   validate(
     z.object({
-      targetType: z.enum(['REVIEW', 'ORDER_MESSAGE']),
+      targetType: z.enum(['REVIEW', 'ORDER_MESSAGE', 'REVIEW_PHOTO']),
       targetId: z.uuid(),
       reason: z.enum(reasons),
       note: z.string().trim().max(500).optional(),
@@ -80,7 +80,7 @@ router.post(
 router.get(
   '/admin/flags',
   ...adminOnly,
-  validateQuery(z.object({ status: z.enum(['OPEN', 'HIDDEN', 'KEPT']).default('OPEN'), targetType: z.enum(['REVIEW', 'ORDER_MESSAGE']).optional(), ...page })),
+  validateQuery(z.object({ status: z.enum(['OPEN', 'HIDDEN', 'KEPT']).default('OPEN'), targetType: z.enum(['REVIEW', 'ORDER_MESSAGE', 'REVIEW_PHOTO']).optional(), ...page })),
   async (req, res) => list(res, await s.listFlags(req.validated)),
 );
 router.post(

@@ -14,6 +14,8 @@ const shopChoice = z.object({
 
 export const checkoutSchema = z.object({
   shops: z.array(shopChoice).min(1).max(20),
+  // pay part of the orders with referral credit (at most 20% of each order's items after a coupon)
+  useCredit: z.boolean().default(false),
 });
 
 export const listOrdersQuery = z.object({

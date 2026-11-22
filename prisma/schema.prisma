@@ -137,6 +137,9 @@ model User {
   notifications       Notification[]
   fileUploads         FileUpload[]
   wishlistItems       WishlistItem[]
+  referralCode        String?        @unique // customers: shared with friends; made on first need
+  devices             UserDevice[]
+  creditEntries       CreditLedger[]
   returnRequests      ReturnRequest[]
   returnMessages      ReturnMessage[]
 }
@@ -487,6 +490,7 @@ model SubOrder {
   discount      Int       @default(0) // coupon discount (taka) on the items; total = subtotal - discount + deliveryFee
   couponCode    String?
   couponRedemption CouponRedemption?
+  creditUsed    Int       @default(0) // referral credit spent on this order; total = subtotal - discount - creditUsed + deliveryFee
 
   @@index([shopId, status])
   @@index([checkoutId])
@@ -618,6 +622,77 @@ model FeaturedSlot {
 enum FlagTarget {
   REVIEW
   ORDER_MESSAGE
+  REVIEW_PHOTO
+}
+
+// Up to 3 photos per review (processed WebP like every public image); hidden by an admin via flags.
+model ReviewPhoto {
+  id        String   @id @default(uuid())
+  reviewId  String
+  imageId   String   @unique
+  sortOrder Int      @default(0)
+  isHidden  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  image     Image    @relation(fields: [imageId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId, sortOrder])
+}
+
+// A device the user signed up or logged in with: only a keyed hash of the web app's random
+// device id (header X-Device-Id). Used to stop self-referral.
+model UserDevice {
+  id         String   @id @default(uuid())
+  userId     String
+  deviceHash String
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceHash])
+  @@index([deviceHash])
+}
+
+enum ReferralStatus {
+  PENDING
+  REWARDED
+  REJECTED
+}
+
+// One per referred customer: rewarded when their FIRST order is COMPLETED.
+model Referral {
+  id         String         @id @default(uuid())
+  referrerId String
+  refereeId  String         @unique
+  status     ReferralStatus @default(PENDING)
+  reason     String? // why it was rejected (fixed texts)
+  createdAt  DateTime       @default(now())
+  rewardedAt DateTime?
+
+  @@index([referrerId])
+}
+
+enum CreditKind {
+  REFERRAL_REWARD
+  CHECKOUT_SPEND
+  CHECKOUT_REFUND
+}
+
+// Store credit (taka). The balance is the sum of amount; spending is negative.
+model CreditLedger {
+  id         String     @id @default(uuid())
+  userId     String
+  amount     Int
+  kind       CreditKind
+  subOrderId String?
+  referralId String?
+  note       String?
+  createdAt  DateTime   @default(now())
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([subOrderId, kind]) // one spend and one refund per order
+  @@unique([referralId, userId]) // one reward per referral and person
+  @@index([userId, createdAt])
 }
 
 enum FlagReason {
@@ -778,6 +853,7 @@ model Review {
   rating    Int
   comment   String?
   isHidden  Boolean    @default(false) // hidden by an admin after a flag: left out of every public list and rating
+  photos    ReviewPhoto[]
   createdAt DateTime   @default(now())
 
   user    User     @relation(fields: [userId], references: [id])
@@ -940,6 +1016,7 @@ model Image {
   shopBanner Shop?    @relation("ShopBanner")
   homeBanner       Banner? @relation("HomeBanner")
   homeBannerMobile Banner? @relation("HomeBannerMobile")
+  reviewPhoto      ReviewPhoto?
   @@index([productId, sortOrder])
 }
 

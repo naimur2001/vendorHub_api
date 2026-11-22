@@ -10,6 +10,8 @@ export const registerSchema = z.object({
     .optional(),
   password: z.string().min(8).max(72), // bcrypt only uses the first 72 bytes
   role: z.enum(['CUSTOMER', 'SHOP_OWNER']).default('CUSTOMER'), // ADMIN can never self-register
+  // a friend's code (customers only); a wrong or self-referral code never blocks the signup
+  referralCode: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{6,12}$/, 'A referral code is 6-12 letters or digits').optional(),
 });
 
 export const loginSchema = z.object({

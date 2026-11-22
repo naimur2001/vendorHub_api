@@ -520,7 +520,7 @@ components:
       enum: [PENDING, APPROVED, REJECTED]
     FlagTarget:
       type: string
-      enum: [REVIEW, ORDER_MESSAGE]
+      enum: [REVIEW, ORDER_MESSAGE, REVIEW_PHOTO]
     FlagReason:
       type: string
       enum: [SPAM, ABUSE, SCAM, PERSONAL_INFO, OFF_TOPIC, OTHER]

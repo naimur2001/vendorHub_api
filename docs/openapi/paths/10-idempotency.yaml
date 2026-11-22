@@ -28,6 +28,10 @@ paths:
               type: object
               required: [shops]
               properties:
+                useCredit:
+                  type: boolean
+                  default: false
+                  description: Pay part of each shop order with referral credit (at most 20% of its items after a coupon). See creditUsed on the orders.
                 shops:
                   type: array
                   minItems: 1

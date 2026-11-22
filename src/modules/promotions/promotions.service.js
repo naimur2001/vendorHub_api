@@ -4,6 +4,7 @@ import { AppError } from '../../lib/errors.js';
 import { assertShopTeam } from '../../lib/shopAccess.js';
 import { thumbFor } from '../../lib/storage.js';
 import { activeDealWhere } from '../../lib/deals.js';
+import { refundCredit } from '../referrals/referrals.service.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const MAX_DEAL_DAYS = 30;
@@ -53,6 +54,7 @@ export async function releasePromotions(tx, orderId) {
     await tx.couponRedemption.delete({ where: { id: redemption.id } });
     await tx.coupon.updateMany({ where: { id: redemption.couponId, usedCount: { gt: 0 } }, data: { usedCount: { decrement: 1 } } });
   }
+  await refundCredit(tx, orderId); // referral credit spent on it comes back (once)
 }
 
 // ---------- flash deals (shop team) ----------

@@ -112,6 +112,10 @@ async function clean() {
         prisma.banner.deleteMany(), // before image: a banner points at its Image rows
         prisma.wishlistItem.deleteMany(),
         prisma.contentFlag.deleteMany(),
+        prisma.reviewPhoto.deleteMany(),
+        prisma.creditLedger.deleteMany(),
+        prisma.referral.deleteMany(),
+        prisma.userDevice.deleteMany(),
         prisma.featuredSlot.deleteMany(),
         prisma.couponRedemption.deleteMany(),
         prisma.coupon.deleteMany(),

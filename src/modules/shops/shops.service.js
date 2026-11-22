@@ -5,6 +5,7 @@ import { presentImage } from '../../lib/storage.js';
 import { mergeSocialLinks, presentSocialLinks, sameSocialLinks } from '../../lib/socialLinks.js';
 import { presentHours } from '../../lib/openingHours.js';
 import { activeDeals, effectivePrice, presentDeal } from '../../lib/deals.js';
+import { photosInclude, presentPhotos } from '../reviews/reviews.service.js';
 import { assertShopTeam } from '../../lib/shopAccess.js'; // hours: owner or staff only, not admins
 const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
@@ -267,6 +268,7 @@ export async function getShopReviews(slug, query) {
       include: {
         user: { select: { name: true } },
         product: { select: { title: true, slug: true } },
+        photos: photosInclude,
       },
     }),
   ]);
@@ -279,6 +281,7 @@ export async function getShopReviews(slug, query) {
     createdAt: r.createdAt,
     reviewer: r.user.name,
     product: r.product,
+    photos: presentPhotos(r.photos),
   }));
   return { items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
 }

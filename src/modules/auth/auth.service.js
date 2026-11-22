@@ -7,6 +7,7 @@ import { signAccessToken } from '../../lib/jwt.js';
 import { env } from '../../config/env.js';
 import { sendMail } from '../../lib/mailer.js';
 import { logger } from '../../lib/logger.js';
+import { recordDevice, applyReferralAtSignup } from '../referrals/referrals.service.js';
 
 // We store only a hash of the refresh token, so a DB leak does not leak usable tokens.
 const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
@@ -35,7 +36,7 @@ async function issueTokens(user) {
   return { accessToken, refreshToken };
 }
 
-export async function register({ name, email, phone, password, role }) {
+export async function register({ name, email, phone, password, role, referralCode }, { deviceHash } = {}) {
   const existing = await prisma.user.findFirst({
     where: { OR: [{ email }, ...(phone ? [{ phone }] : [])] },
   });
@@ -48,14 +49,18 @@ export async function register({ name, email, phone, password, role }) {
     data: { name, email, phone, passwordHash, role, emailVerifiedAt: verified ? new Date() : null },
   });
   if (!verified && user.email) await sendVerificationLink(user); // never throws: a mail problem must not stop registration
+  // referrals: the device first (the self-referral check compares devices), then the friend's code
+  await recordDevice(user.id, deviceHash);
+  if (role === 'CUSTOMER') await applyReferralAtSignup(user.id, referralCode).catch((err) => logger.warn({ err: err.message }, 'referral not recorded'));
   return { user: publicUser(user), ...(await issueTokens(user)) };
 }
 
-export async function login({ email, password }) {
+export async function login({ email, password }, { deviceHash } = {}) {
   const user = await prisma.user.findUnique({ where: { email } });
   const valid = user && user.isActive && (await bcrypt.compare(password, user.passwordHash));
   // Same message for "no such user" and "wrong password" so attackers cannot probe for emails.
   if (!valid) throw new AppError(401, 'Invalid email or password');
+  await recordDevice(user.id, deviceHash); // referral abuse checks only
   return { user: publicUser(user), ...(await issueTokens(user)) };
 }
 

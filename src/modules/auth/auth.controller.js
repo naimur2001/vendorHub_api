@@ -1,4 +1,5 @@
 import * as authService from './auth.service.js';
+import { deviceHashOf } from '../referrals/referrals.service.js';
 import { env } from '../../config/env.js';
 import { AppError } from '../../lib/errors.js';
 
@@ -51,11 +52,11 @@ function clearSessionCookie(res) {
 
 // Controllers only deal with HTTP. Business logic lives in the service.
 export const register = async (req, res) => {
-  sendSession(res, 201, await authService.register(req.body), wantsCookie(req));
+  sendSession(res, 201, await authService.register(req.body, { deviceHash: deviceHashOf(req) }), wantsCookie(req));
 };
 
 export const login = async (req, res) => {
-  sendSession(res, 200, await authService.login(req.body), wantsCookie(req));
+  sendSession(res, 200, await authService.login(req.body, { deviceHash: deviceHashOf(req) }), wantsCookie(req));
 };
 
 export const refresh = async (req, res) => {

@@ -1761,6 +1761,8 @@ components:
           $ref: '#/components/schemas/OrderDiscount'
         couponCode:
           $ref: '#/components/schemas/OrderCouponCode'
+        creditUsed:
+          $ref: '#/components/schemas/OrderCreditUsed'
         items:
           type: array
           items:

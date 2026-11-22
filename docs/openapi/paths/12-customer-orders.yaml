@@ -141,6 +141,8 @@ components:
           $ref: '#/components/schemas/OrderDiscount'
         couponCode:
           $ref: '#/components/schemas/OrderCouponCode'
+        creditUsed:
+          $ref: '#/components/schemas/OrderCreditUsed'
         shop:
           type: object
           additionalProperties: true

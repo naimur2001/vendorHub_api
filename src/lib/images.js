@@ -32,6 +32,8 @@ export const IMAGE_PROFILES = Object.freeze({
   BANNER: Object.freeze({ width: 1600, thumbWidth: 800, minWidth: 1200, minHeight: 300, enlarge: true }),
   // home page billboard: landscape, 3:1 recommended (e.g. 1800 x 600); GIFs stay animated
   HOME_BANNER: Object.freeze({ width: 1800, thumbWidth: 900, minWidth: 900, minHeight: 300, animated: true }),
+  // a buyer's photo on a review
+  REVIEW: Object.freeze({ width: 1600, thumbWidth: 400, minWidth: 300, minHeight: 300 }),
   // home page side advertisement: tall, 2:3 recommended (e.g. 600 x 900); GIFs stay animated
   SIDE_AD: Object.freeze({ width: 900, thumbWidth: 450, minWidth: 300, minHeight: 400, animated: true }),
   // optional phone version of a home banner (portrait or smaller)

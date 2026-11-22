@@ -3,7 +3,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { notify } from '../../lib/notify.js';
-import { thumbFor } from '../../lib/storage.js';
+import { thumbFor, imageUrls } from '../../lib/storage.js';
 import { activeDeals, effectivePrice } from '../../lib/deals.js';
 import { shopTeamIds } from '../notifications/notifications.events.js';
 
@@ -254,6 +254,15 @@ async function reportableTarget(user, targetType, targetId) {
     if (r.userId === user.id) throw new AppError(400, 'You cannot report your own review');
     return r;
   }
+  if (targetType === 'REVIEW_PHOTO') {
+    const p = await prisma.reviewPhoto.findFirst({
+      where: { id: targetId, isHidden: false, review: { isHidden: false } },
+      select: { id: true, review: { select: { userId: true } } },
+    });
+    if (!p) throw new AppError(404, 'Photo not found');
+    if (p.review.userId === user.id) throw new AppError(400, 'You cannot report your own photo');
+    return p;
+  }
   const m = await prisma.orderMessage.findFirst({
     where: { id: targetId, isHidden: false },
     select: { id: true, senderUserId: true, subOrder: { select: { shopId: true, checkout: { select: { userId: true } } } } },
@@ -285,6 +294,15 @@ export async function report(user, { targetType, targetId, reason, note }) {
 async function targets(flags) {
   const reviewIds = flags.filter((f) => f.targetType === 'REVIEW').map((f) => f.targetId);
   const messageIds = flags.filter((f) => f.targetType === 'ORDER_MESSAGE').map((f) => f.targetId);
+  const photoIds = flags.filter((f) => f.targetType === 'REVIEW_PHOTO').map((f) => f.targetId);
+  const photos = photoIds.length
+    ? (await prisma.reviewPhoto.findMany({ where: { id: { in: photoIds } }, include: { image: { select: { key: true } } } })).map((p) => ({
+        id: p.id,
+        reviewId: p.reviewId,
+        isHidden: p.isHidden,
+        ...imageUrls(p.image.key),
+      }))
+    : [];
   const [reviews, messages] = await Promise.all([
     reviewIds.length
       ? prisma.review.findMany({ where: { id: { in: reviewIds } }, select: { id: true, type: true, rating: true, comment: true, isHidden: true, shopId: true, productId: true } })
@@ -293,7 +311,7 @@ async function targets(flags) {
       ? prisma.orderMessage.findMany({ where: { id: { in: messageIds } }, select: { id: true, senderRole: true, body: true, isHidden: true, subOrderId: true } })
       : [],
   ]);
-  return new Map([...reviews, ...messages].map((t) => [t.id, t]));
+  return new Map([...reviews, ...messages, ...photos].map((t) => [t.id, t]));
 }
 
 export async function listFlags({ status, targetType, page, limit }) {
@@ -336,14 +354,15 @@ export async function resolveFlag(admin, id, { action, note }) {
   const status = action === 'HIDE' ? 'HIDDEN' : 'KEPT';
   const resolved = await prisma.$transaction(async (tx) => {
     if (action === 'HIDE') {
-      if (flag.targetType === 'REVIEW') await tx.review.updateMany({ where: { id: flag.targetId }, data: { isHidden: true } });
-      else await tx.orderMessage.updateMany({ where: { id: flag.targetId }, data: { isHidden: true } });
+      const model = { REVIEW: tx.review, ORDER_MESSAGE: tx.orderMessage, REVIEW_PHOTO: tx.reviewPhoto }[flag.targetType];
+      await model.updateMany({ where: { id: flag.targetId }, data: { isHidden: true } });
     }
     const { count } = await tx.contentFlag.updateMany({
       where: { targetType: flag.targetType, targetId: flag.targetId, status: 'OPEN' },
       data: { status, resolvedById: admin.id, resolvedAt: new Date(), resolutionNote: note ?? null },
     });
-    await audit(tx, admin, 'flag.resolved', flag.targetType === 'REVIEW' ? 'Review' : 'OrderMessage', flag.targetId, { action, flags: count });
+    const entity = { REVIEW: 'Review', ORDER_MESSAGE: 'OrderMessage', REVIEW_PHOTO: 'ReviewPhoto' }[flag.targetType];
+    await audit(tx, admin, 'flag.resolved', entity, flag.targetId, { action, flags: count });
     return count;
   });
   return { status, resolvedFlags: resolved };

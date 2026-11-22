@@ -6,6 +6,7 @@ import { getOrder as getCustomerOrder, statusEventsInclude, reservationTimes } f
 import { notifyStatusChange, notifyCustomerCancel } from '../notifications/notifications.events.js';
 import { unreadCounts } from '../orderChat/orderChat.service.js';
 import { releasePromotions } from '../promotions/promotions.service.js';
+import { rewardReferralIfDue, notifyReferralReward } from '../referrals/referrals.service.js';
 
 // Which statuses an order may move to from each status.
 const TRANSITIONS = {
@@ -19,7 +20,7 @@ const TRANSITIONS = {
 
 const orderInclude = {
   items: true,
-  checkout: { select: { user: { select: { name: true, phone: true } } } },
+  checkout: { select: { userId: true, user: { select: { name: true, phone: true } } } },
 };
 
 // The statuses this order may move to right now (also tells the UI which buttons to show).
@@ -44,6 +45,7 @@ const formatForShop = (o) => ({
   subtotal: o.subtotal,
   discount: o.discount,
   couponCode: o.couponCode,
+  creditUsed: o.creditUsed,
   total: o.total,
   createdAt: o.createdAt,
   ...reservationTimes(o),
@@ -164,6 +166,7 @@ export async function changeStatus(user, shopId, orderId, { status, reason }) {
     throw new AppError(409, 'Waiting for the online payment');
   }
 
+  let referralReward = null;
   await prisma.$transaction(async (tx) => {
     const changed = await tx.subOrder.updateMany({
       where: { id: orderId, status: order.status },
@@ -177,6 +180,8 @@ export async function changeStatus(user, shopId, orderId, { status, reason }) {
         // the moment of completion starts the return window
     if (status === 'COMPLETED') {
       await tx.subOrder.update({ where: { id: orderId }, data: { completedAt: new Date() } });
+      // the customer's first completed order pays a pending referral (both sides, once)
+      referralReward = await rewardReferralIfDue(tx, order.checkout.userId);
     }
     // cash is collected when the customer receives the goods
     if (status === 'COMPLETED' && order.paymentMethod !== 'ONLINE') {
@@ -187,6 +192,7 @@ export async function changeStatus(user, shopId, orderId, { status, reason }) {
     await logChange(tx, user.id, 'order.status_changed', orderId, order.status, status, reason);
   });
   await notifyStatusChange(order, status, reason); // after the commit, never throws
+  await notifyReferralReward(referralReward);
   return getShopOrder(user, shopId, orderId);
 }
 

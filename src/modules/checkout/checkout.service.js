@@ -7,6 +7,7 @@ import { notifyNewOrders, notifyLowStock } from '../notifications/notifications.
 import { unreadCounts } from '../orderChat/orderChat.service.js';
 import { activeDeals, effectivePrice } from '../../lib/deals.js';
 import { redeemCoupon } from '../promotions/promotions.service.js';
+import { balanceOf, creditCap } from '../referrals/referrals.service.js';
 import { RESERVATION_HOURS, RESERVATION_CONFIRM_MINUTES, MAX_ACTIVE_RESERVATIONS } from '../../config/limits.js';
 
 // a reservation counts against the limit until it is completed or cancelled
@@ -58,6 +59,7 @@ const formatOrder = (o) => ({
   subtotal: o.subtotal,
   discount: o.discount,
   couponCode: o.couponCode,
+  creditUsed: o.creditUsed,
   total: o.total,
   createdAt: o.createdAt,
   ...reservationTimes(o),
@@ -74,7 +76,7 @@ const formatOrder = (o) => ({
   })),
 });
 
-async function placeOrdersInTransaction(userId, { shops: choices }, inTransaction) {
+async function placeOrdersInTransaction(userId, { shops: choices, useCredit = false }, inTransaction) {
   
   const choiceIds = choices.map((c) => c.shopId);
   if (new Set(choiceIds).size !== choiceIds.length) {
@@ -244,6 +246,13 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
         }
       }
 
+      // credit: read once under a per-customer lock, so two checkouts cannot spend the same credit
+      let creditLeft = 0;
+      if (useCredit) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`credit:${userId}`}))`;
+        creditLeft = Math.max(0, await balanceOf(tx, userId));
+      }
+
       // 5. One parent session, one independent order per shop
       const session = await tx.checkoutSession.create({ data: { userId, totalAmount: 0 } });
       let totalAmount = 0;
@@ -255,7 +264,10 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
         // a coupon of THIS shop lowers the items' subtotal (never the delivery fee); computed here
         const coupon = c.couponCode ? await redeemCoupon(tx, userId, c.shopId, c.couponCode, subtotal) : null;
         const discount = coupon?.discount ?? 0;
-        const total = subtotal - discount + deliveryFee;
+        // then credit: at most CREDIT_MAX_SHARE of the items after the coupon
+        const creditUsed = Math.min(creditLeft, creditCap(subtotal - discount));
+        creditLeft -= creditUsed;
+        const total = subtotal - discount - creditUsed + deliveryFee;
         totalAmount += total;
 
         const order = await tx.subOrder.create({
@@ -269,6 +281,7 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
             subtotal,
             discount,
             couponCode: coupon ? coupon.code : null,
+            creditUsed,
             total,
             paymentMethod: c.paymentMethod,
             paymentStatus: 'PENDING',
@@ -296,6 +309,11 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
         if (coupon) {
           await tx.couponRedemption.create({
             data: { couponId: coupon.id, userId, subOrderId: order.id, discount },
+          });
+        }
+        if (creditUsed > 0) {
+          await tx.creditLedger.create({
+            data: { userId, amount: -creditUsed, kind: 'CHECKOUT_SPEND', subOrderId: order.id, note: `Paid with credit (${order.orderNumber})` },
           });
         }
         orders.push(order);

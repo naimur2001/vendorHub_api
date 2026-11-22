@@ -1,0 +1,212 @@
+# Review photos and referral credit.
+# Review photos: up to 3 per review, added by the review's author who must be a verified buyer
+#   (a COMPLETED order at that shop; for a PRODUCT review, with that product). Same photo rules as
+#   product photos (JPG/PNG/WebP, 5 MB, re-encoded WebP). Reviews carry `photos` (hidden ones left
+#   out). Anyone can report a photo (POST /flags, targetType REVIEW_PHOTO); an admin can hide it.
+# Referrals: every customer has a referralCode (GET /me/credit). Signing up with
+#   { referralCode } (POST /auth/register) links the new customer; when their FIRST order is
+#   COMPLETED both get 100 taka credit (notification CREDIT_REWARD). Self-referral (the same phone,
+#   or a device both accounts used) is refused, at signup and again at reward time. The web app
+#   sends a random id it keeps in localStorage as header X-Device-Id (8-128 of A-Z a-z 0-9 _ -) on
+#   register and login; only a keyed hash is stored.
+# Credit: POST /checkout with useCredit true pays part of each shop order: at most 20% of its items
+#   after a coupon (rounded down), on the server. A cancelled order gives the credit back.
+paths:
+  /api/v1/reviews/{id}/photos:
+    parameters:
+      - $ref: '#/components/parameters/ReviewIdParam'
+    post:
+      tags: [Reviews]
+      operationId: addReviewPhoto
+      summary: Add a photo to my review (verified buyers only, at most 3)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: The photo.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ReviewPhoto'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: 'Not a verified buyer (error.details.code NOT_VERIFIED_BUYER).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 'Already 3 photos (error.details.code REVIEW_PHOTO_LIMIT).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Larger than 5 MB.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: The photo is too small (at least 300 x 300).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/reviews/{id}/photos/{photoId}:
+    parameters:
+      - $ref: '#/components/parameters/ReviewIdParam'
+      - name: photoId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [Reviews]
+      operationId: removeReviewPhoto
+      summary: Remove a photo of my review (or any, as an admin)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Removed (the files too).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/me/credit:
+    get:
+      tags: [Account]
+      operationId: myCredit
+      summary: My credit balance, history (latest 50) and referral code (customers)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The credit.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/MyCredit'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  parameters:
+    XDeviceId:
+      name: X-Device-Id
+      in: header
+      required: false
+      description: A random id the web app keeps in localStorage (8-128 of A-Z a-z 0-9 _ -). Only a keyed hash is stored, for the self-referral check.
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_-]{8,128}$'
+    ReviewIdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    ReviewPhoto:
+      type: object
+      required: [id, url, thumbUrl, width, height]
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+        thumbUrl:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
+    MyCredit:
+      type: object
+      required: [balance, referralCode, rewardPerReferral, maxSharePerOrder, referrals, history]
+      properties:
+        balance:
+          type: integer
+          description: Taka.
+        referralCode:
+          type: string
+          example: K7MQ2XPA
+        rewardPerReferral:
+          type: integer
+          example: 100
+        maxSharePerOrder:
+          type: number
+          example: 0.2
+        referrals:
+          type: object
+          required: [invited, rewarded]
+          properties:
+            invited:
+              type: integer
+            rewarded:
+              type: integer
+        history:
+          type: array
+          items:
+            type: object
+            required: [amount, kind, note, orderId, createdAt]
+            properties:
+              amount:
+                type: integer
+                description: Positive = received, negative = spent.
+              kind:
+                type: string
+                enum: [REFERRAL_REWARD, CHECKOUT_SPEND, CHECKOUT_REFUND]
+              note:
+                type: string
+                nullable: true
+              orderId:
+                type: string
+                format: uuid
+                nullable: true
+              createdAt:
+                type: string
+                format: date-time
+    OrderCreditUsed:
+      type: integer
+      description: Referral credit (taka) spent on this order.

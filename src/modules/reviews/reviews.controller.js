@@ -5,6 +5,15 @@ export const create = async (req, res) => {
   res.status(201).json({ success: true, data });
 };
 
+export const addPhoto = async (req, res) => {
+  res.status(201).json({ success: true, data: await reviewService.addReviewPhoto(req.user, req.params.id, req.file) });
+};
+
+export const removePhoto = async (req, res) => {
+  await reviewService.removeReviewPhoto(req.user, req.params.id, req.params.photoId);
+  res.json({ success: true, data: { message: 'Photo removed' } });
+};
+
 export const update = async (req, res) => {
   const data = await reviewService.updateReview(req.user, req.params.id, req.body);
   res.json({ success: true, data });

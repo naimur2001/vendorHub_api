@@ -18,5 +18,13 @@ export const CHAT_PAGE = 100;
 export const CHAT_OPEN_DAYS_AFTER_CLOSE = 7;
 export const CHAT_NOTIFY_EVERY_MS = 5 * 60 * 1000;
 
+// Referral: both sides get this credit (taka) when the referred customer's first order is COMPLETED.
+// Credit pays at most this share of an order's items (after a coupon).
+export const REFERRAL_CREDIT = 100;
+export const CREDIT_MAX_SHARE = 0.2;
+
+// Photos per review.
+export const MAX_REVIEW_PHOTOS = 3;
+
 // At most one price-drop notification per wishlist item in this time.
 export const PRICE_ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
