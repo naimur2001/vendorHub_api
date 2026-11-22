@@ -83,7 +83,7 @@ async function loadGarment(url) {
 
 export async function tryOnInfo(slug) {
   const product = await prisma.product.findFirst({
-    where: { slug, isActive: true },
+    where: { slug, isActive: true, moderationStatus: 'APPROVED' },
     select: { images: true, category: { select: { virtualTryOn: true } } },
   });
   if (!product) throw new AppError(404, 'Product not found');

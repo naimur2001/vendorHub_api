@@ -107,7 +107,7 @@ $m1 = $r.json.data
 Check 'trimmed body' $m1.body 'Is it the black colour?'
 Check 'senderRole CUSTOMER' $m1.senderRole 'CUSTOMER'
 Check 'mine true for the sender' $m1.mine $true
-Check 'no personal data in a message' (($m1.PSObject.Properties.Name | Sort-Object) -join ',') 'body,createdAt,id,mine,readAt,senderRole'
+Check 'no personal data in a message' (($m1.PSObject.Properties.Name | Sort-Object) -join ',') 'body,createdAt,hidden,id,mine,readAt,senderRole'
 Check 'empty body -> 400' (Call 'POST' $cPath $cust @{ body = '' }).status 400
 Check 'only spaces -> 400' (Call 'POST' $cPath $cust @{ body = '    ' }).status 400
 Check '1001 characters -> 400' (Call 'POST' $cPath $cust @{ body = ('a' * 1001) }).status 400

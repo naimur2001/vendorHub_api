@@ -92,7 +92,7 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
             include: {
               listing: {
                 include: {
-                  product: { select: { title: true } },
+                  product: { select: { title: true, isActive: true, moderationStatus: true } },
                   shop: {
                     select: { id: true, name: true, isActive: true, supportsDelivery: true, supportsPickup: true },
                   },
@@ -122,7 +122,7 @@ async function placeOrdersInTransaction(userId, { shops: choices }, inTransactio
       for (const item of cart.items) {
         const l = item.listing;
         let problem = null;
-        if (!l.isActive || !l.shop.isActive) problem = 'UNAVAILABLE';
+        if (!l.isActive || !l.shop.isActive || !l.product.isActive || l.product.moderationStatus !== 'APPROVED') problem = 'UNAVAILABLE';
         else if (l.availability === 'OUT_OF_STOCK') problem = 'OUT_OF_STOCK';
         else if (l.stockQty !== null && item.quantity > l.stockQty) problem = 'INSUFFICIENT_STOCK';
         if (problem) {

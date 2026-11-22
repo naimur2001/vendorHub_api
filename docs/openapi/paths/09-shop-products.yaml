@@ -621,6 +621,14 @@ components:
           type: string
           format: date-time
           nullable: true
+        moderationStatus:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED]
+          description: A new shop product is PENDING (not public) until an admin approves it; editing a REJECTED one sends it back to PENDING.
+        moderationNote:
+          type: string
+          nullable: true
+          description: The rejection reason.
         isActive:
           type: boolean
         createdAt:

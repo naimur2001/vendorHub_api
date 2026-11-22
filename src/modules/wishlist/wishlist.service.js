@@ -7,7 +7,7 @@ import { MAX_WISHLIST } from '../../config/limits.js';
 import { listingIdParam } from './wishlist.schema.js';
 
 // A listing can be shown (and saved) only while the listing, its shop and its product are all active.
-const visibleListing = { isActive: true, shop: { isActive: true }, product: { isActive: true } };
+const visibleListing = { isActive: true, shop: { isActive: true }, product: { isActive: true, moderationStatus: 'APPROVED' } };
 
 const listingInclude = {
   product: { select: { id: true, slug: true, title: true, images: true, msrp: true } },

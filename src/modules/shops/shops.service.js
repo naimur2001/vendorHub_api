@@ -106,7 +106,7 @@ export async function getShop(slug, userId) {
 
   const [rating, ordersFulfilled, activeBargains, follow] = await Promise.all([
     prisma.review.aggregate({
-      where: { shopId: shop.id, type: 'SHOP_TRUST' },
+      where: { shopId: shop.id, type: 'SHOP_TRUST', isHidden: false },
       _avg: { rating: true },
       _count: { rating: true },
     }),
@@ -179,6 +179,7 @@ export async function getShopProducts(slug, query) {
     isActive: true,
     product: {
       isActive: true,
+      moderationStatus: 'APPROVED',
       ...(q && { title: { contains: q, mode: 'insensitive' } }),
       ...(category && { category: { OR: [{ slug: category }, { parent: { slug: category } }] } }),
     },
@@ -238,7 +239,7 @@ export async function getShopProducts(slug, query) {
 export async function getShopCategories(slug) {
   const shop = await findActiveShop(slug);
   const rows = await prisma.shopListing.findMany({
-    where: { shopId: shop.id, isActive: true, product: { isActive: true } },
+    where: { shopId: shop.id, isActive: true, product: { isActive: true, moderationStatus: 'APPROVED' } },
     select: { product: { select: { category: { select: { id: true, name: true, slug: true } } } } },
   });
   const counts = new Map();
@@ -254,7 +255,7 @@ export async function getShopCategories(slug) {
 export async function getShopReviews(slug, query) {
   const shop = await findActiveShop(slug);
   const { type, page, limit } = query;
-  const where = { shopId: shop.id, ...(type && { type }) };
+  const where = { shopId: shop.id, isHidden: false, ...(type && { type }) }; // hidden by moderation: left out
 
   const [total, rows] = await Promise.all([
     prisma.review.count({ where }),
@@ -455,7 +456,7 @@ async function shopCards(ids) {
         }),
         prisma.review.groupBy({
           by: ['shopId'],
-          where: { shopId: { in: ids }, type: 'SHOP_TRUST' },
+          where: { shopId: { in: ids }, type: 'SHOP_TRUST', isHidden: false },
           _avg: { rating: true },
           _count: { rating: true },
         }),

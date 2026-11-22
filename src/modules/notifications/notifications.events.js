@@ -43,7 +43,7 @@ async function adminIds() {
 export async function notifyPriceDrop(listingId, newPrice) {
   try {
     const listing = await prisma.shopListing.findFirst({
-      where: { id: listingId, isActive: true, shop: { isActive: true }, product: { isActive: true } },
+      where: { id: listingId, isActive: true, shop: { isActive: true }, product: { isActive: true, moderationStatus: 'APPROVED' } },
       select: { product: { select: { title: true, slug: true } }, shop: { select: { name: true, slug: true } } },
     });
     if (!listing) return;

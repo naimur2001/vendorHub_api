@@ -127,7 +127,7 @@ export async function publicDeals({ limit }) {
   const rows = await prisma.flashDeal.findMany({
     where: {
       ...activeDealWhere(now),
-      listing: { isActive: true, shop: { isActive: true }, product: { isActive: true } },
+      listing: { isActive: true, shop: { isActive: true }, product: { isActive: true, moderationStatus: 'APPROVED' } },
     },
     orderBy: [{ endsAt: 'asc' }, { id: 'asc' }], // ending soonest first
     take: limit * 2, // a few spare in case a deal is not lower than a since-lowered price

@@ -53,7 +53,7 @@ export async function getCart(userId) {
         include: {
           listing: {
             include: {
-              product: { select: { id: true, slug: true, title: true, images: true, msrp: true } },
+              product: { select: { id: true, slug: true, title: true, images: true, msrp: true, isActive: true, moderationStatus: true } },
               shop: { select: shopSelect },
             },
           },
@@ -74,7 +74,7 @@ export async function getCart(userId) {
     const price = effectivePrice(l.price, deal);
 
     let problem = null;
-    if (!l.isActive || !l.shop.isActive) problem = 'UNAVAILABLE';
+    if (!l.isActive || !l.shop.isActive || !l.product.isActive || l.product.moderationStatus !== 'APPROVED') problem = 'UNAVAILABLE';
     else if (l.availability === 'OUT_OF_STOCK') problem = 'OUT_OF_STOCK';
     else if (l.stockQty !== null && item.quantity > l.stockQty) problem = 'INSUFFICIENT_STOCK';
 
@@ -135,9 +135,10 @@ export async function getCart(userId) {
 export async function addItem(userId, { listingId, quantity }) {
   const listing = await prisma.shopListing.findUnique({
     where: { id: listingId },
-    include: { shop: { select: { isActive: true } } },
+    include: { shop: { select: { isActive: true } }, product: { select: { isActive: true, moderationStatus: true } } },
   });
-  if (!listing || !listing.isActive || !listing.shop.isActive) {
+  const visible = listing?.product.isActive && listing.product.moderationStatus === 'APPROVED';
+  if (!listing || !listing.isActive || !listing.shop.isActive || !visible) {
     throw new AppError(404, 'Listing not found');
   }
   if (listing.availability === 'OUT_OF_STOCK') {

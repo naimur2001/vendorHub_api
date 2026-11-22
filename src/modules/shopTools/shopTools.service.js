@@ -153,11 +153,12 @@ export async function importListings(user, shopId, file) {
   const slugs = [...new Set(data.map((r) => col(r, 'productslug')).filter(Boolean))];
   const byTitle = data.filter((r) => !col(r, 'productslug') && col(r, 'title') && col(r, 'category'));
   const [slugProducts, titleProducts] = await Promise.all([
-    slugs.length ? prisma.product.findMany({ where: { slug: { in: slugs }, isActive: true }, select: { id: true, slug: true } }) : [],
+    slugs.length ? prisma.product.findMany({ where: { slug: { in: slugs }, isActive: true, moderationStatus: 'APPROVED' }, select: { id: true, slug: true } }) : [],
     byTitle.length
       ? prisma.product.findMany({
           where: {
             isActive: true,
+            moderationStatus: 'APPROVED',
             OR: byTitle.map((r) => ({ title: { equals: col(r, 'title'), mode: 'insensitive' }, category: { slug: col(r, 'category').toLowerCase() } })),
           },
           select: { id: true, title: true, category: { select: { slug: true } } },

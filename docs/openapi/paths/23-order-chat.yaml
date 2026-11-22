@@ -228,8 +228,11 @@ components:
   schemas:
     OrderMessage:
       type: object
-      required: [id, senderRole, mine, body, createdAt, readAt]
+      required: [id, senderRole, mine, body, hidden, createdAt, readAt]
       properties:
+        hidden:
+          type: boolean
+          description: true = hidden by an admin after a report (body is then null).
         id:
           type: string
           format: uuid
@@ -241,6 +244,7 @@ components:
           description: true when the reader's side wrote it.
         body:
           type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time

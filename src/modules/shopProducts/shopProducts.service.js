@@ -31,6 +31,9 @@ const presentProduct = (p) => ({
   createdByShopId: p.createdByShopId,
   lockedAt: p.lockedAt,
   isActive: p.isActive,
+  // PENDING until an admin approves it; only APPROVED products are public. moderationNote = the rejection reason.
+  moderationStatus: p.moderationStatus,
+  moderationNote: p.moderationNote,
   createdAt: p.createdAt,
 });
 
@@ -126,6 +129,7 @@ export async function createShopProduct(user, shopId, input) {
         images: [],
         source: 'SHOP',
         createdByShopId: shopId,
+        moderationStatus: 'PENDING', // not public until an admin approves it
       },
       include: productInclude,
     });
@@ -171,7 +175,9 @@ export async function updateShopProduct(user, shopId, productId, input) {
   await assertRefs(input.categoryId, input.brandId);
 
   const updated = await prisma.$transaction(async (tx) => {
-    const p = await tx.product.update({ where: { id: productId }, data: input, include: productInclude }); // slug never changes
+    // a rejected product that is edited goes back to the admin queue
+    const resubmit = product.moderationStatus === 'REJECTED' ? { moderationStatus: 'PENDING', moderationNote: null } : {};
+    const p = await tx.product.update({ where: { id: productId }, data: { ...input, ...resubmit }, include: productInclude }); // slug never changes
     await tx.auditLog.create({
       data: { actorId: user.id, action: 'catalog.shop_product_updated', entityType: 'Product', entityId: productId, meta: { shopId, fields: Object.keys(input) } },
     });

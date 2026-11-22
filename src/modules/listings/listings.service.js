@@ -36,7 +36,7 @@ export async function listShopListings(user, shopId, { lowStock } = {}) {
 export async function createListing(user, shopId, input) {
   await assertShopAccess(user, shopId);
 
-  const product = await prisma.product.findFirst({ where: { id: input.productId, isActive: true } });
+  const product = await prisma.product.findFirst({ where: { id: input.productId, isActive: true, moderationStatus: 'APPROVED' } });
   if (!product) throw new AppError(404, 'Product not found');
 
   const existing = await prisma.shopListing.findUnique({

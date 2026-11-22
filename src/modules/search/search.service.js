@@ -74,7 +74,7 @@ async function similarProducts(buffer) {
       WHERE sl."productId" = p.id AND sl."isActive" = true AND s."isActive" = true
     ) l ON l.shops > 0
     LEFT JOIN photo ON photo."productId" = p.id
-    WHERE p."isActive" = true AND (photo.score IS NOT NULL OR p."titleEmbedding" IS NOT NULL)
+    WHERE p."isActive" = true AND p."moderationStatus" = 'APPROVED' AND (photo.score IS NOT NULL OR p."titleEmbedding" IS NOT NULL)
     ORDER BY GREATEST(COALESCE(photo.score, 0), COALESCE(1 - (p."titleEmbedding" <=> ${v}::vector), 0) * ${TITLE_WEIGHT}) DESC, p.id
     LIMIT ${RESULTS}`;
 

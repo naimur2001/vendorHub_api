@@ -55,8 +55,12 @@ $dhaka = (Call 'GET' '/shops/dhaka-mobile-house' $null $null).json.data.id
 $cat = @((Call 'GET' '/categories' $null $null).json.data)[0].id
 $a55 = (Call 'GET' '/products/galaxy-a55-5g-8-128gb' $null $null).json.data.product.id
 $stamp = Get-Date -Format 'yyyyMMddHHmmss'
+# A shop-made product starts PENDING (moderation, see test-moderation.ps1); this suite tests the
+# product itself, so the admin approves it right away.
 function NewProduct($token, $shopId, $title) {
-    return Call 'POST' "/shops/$shopId/products" $token @{ title = $title; categoryId = $cat; specs = @{ capacity = '20000 mAh' }; listing = @{ price = 2500; stockQty = 10 } }
+    $r = Call 'POST' "/shops/$shopId/products" $token @{ title = $title; categoryId = $cat; specs = @{ capacity = '20000 mAh' }; listing = @{ price = 2500; stockQty = 10 } }
+    if ($r.status -eq 201) { Call 'POST' "/admin/moderation/products/$($r.json.data.product.id)/approve" $admin $null | Out-Null }
+    return $r
 }
 
 # ---- 1. similar search ----

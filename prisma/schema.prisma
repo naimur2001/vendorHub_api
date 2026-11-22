@@ -339,6 +339,9 @@ model Product {
   source          ProductSource @default(ADMIN)
   createdByShopId String?
   lockedAt        DateTime? // set when an admin edits or merges the product: the creating shop can no longer change it
+  moderationStatus ModerationStatus @default(APPROVED) // shop-made products start PENDING; only APPROVED are public
+  moderationNote   String? // the reason of a rejection (shown to the shop)
+  moderatedAt      DateTime?
     titleEmbedding  Unsupported("vector(512)")? // CLIP text fingerprint of the title (visual search)
   createdByShop   Shop?         @relation("ShopCreatedProducts", fields: [createdByShopId], references: [id], onDelete: SetNull)
   photos          Image[]
@@ -587,6 +590,73 @@ model CouponRedemption {
   @@index([couponId, userId])
 }
 
+enum ModerationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum FeaturedKind {
+  SHOP
+  PRODUCT
+}
+
+// Admin-picked shops and products for the home page (max 12 per kind), ordered like banners.
+model FeaturedSlot {
+  id        String       @id @default(uuid())
+  kind      FeaturedKind
+  targetId  String // a Shop id or a Product id
+  sortOrder Int          @default(0)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  createdAt DateTime     @default(now())
+
+  @@unique([kind, targetId])
+  @@index([kind, sortOrder])
+}
+
+enum FlagTarget {
+  REVIEW
+  ORDER_MESSAGE
+}
+
+enum FlagReason {
+  SPAM
+  ABUSE
+  SCAM
+  PERSONAL_INFO
+  OFF_TOPIC
+  OTHER
+}
+
+enum FlagStatus {
+  OPEN
+  HIDDEN
+  KEPT
+}
+
+// A report about a review or an order-chat message: by a user (reporterId) or automatic (auto,
+// reporterId null). An admin resolves all open flags of a target at once: hide it or keep it.
+model ContentFlag {
+  id             String     @id @default(uuid())
+  targetType     FlagTarget
+  targetId       String
+  reporterId     String?
+  reason         FlagReason
+  note           String?
+  auto           Boolean    @default(false)
+  status         FlagStatus @default(OPEN)
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNote String?
+  createdAt      DateTime   @default(now())
+
+  @@unique([targetType, targetId, reporterId])
+  @@index([status, createdAt])
+  @@index([targetType, targetId])
+  @@index([reporterId, createdAt])
+}
+
 enum MessageSenderRole {
   CUSTOMER
   SHOP
@@ -602,6 +672,7 @@ model OrderMessage {
   body         String // plain text, 1-1000 characters
   createdAt    DateTime          @default(now())
   readAt       DateTime? // set when the OTHER side reads it
+  isHidden     Boolean           @default(false) // hidden by an admin after a flag
   subOrder     SubOrder          @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
 
   @@index([subOrderId, createdAt])
@@ -706,6 +777,7 @@ model Review {
   productId String? // only for PRODUCT reviews
   rating    Int
   comment   String?
+  isHidden  Boolean    @default(false) // hidden by an admin after a flag: left out of every public list and rating
   createdAt DateTime   @default(now())
 
   user    User     @relation(fields: [userId], references: [id])

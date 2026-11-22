@@ -55,7 +55,7 @@ export async function listProducts(query) {
 
   // Product filters, written on Product columns only, so PostgreSQL can use their indexes
   // (trigram index on the title, existing indexes on brandId and categoryId).
-  const productConds = [Prisma.sql`p."isActive" = true`];
+  const productConds = [Prisma.sql`p."isActive" = true`, Prisma.sql`p."moderationStatus" = 'APPROVED'`];
   if (q) {
     const pattern = likePattern(q);
     productConds.push(Prisma.sql`(p.title ILIKE ${pattern} ESCAPE '\\'
@@ -174,7 +174,7 @@ export async function listProducts(query) {
 // shop's market; null when the market has no coordinates). The point is not stored or logged.
 export async function getProduct(slug, listingId, point = null) {
   const product = await prisma.product.findFirst({
-    where: { slug, isActive: true },
+    where: { slug, isActive: true, moderationStatus: 'APPROVED' },
     include: {
       brand: true,
       category: { select: { id: true, name: true, slug: true } },
@@ -210,7 +210,7 @@ export async function getProduct(slug, listingId, point = null) {
   const ratingRows = shopIds.length
     ? await prisma.review.groupBy({
         by: ['shopId'],
-        where: { type: 'SHOP_TRUST', shopId: { in: shopIds } },
+        where: { type: 'SHOP_TRUST', shopId: { in: shopIds }, isHidden: false },
         _avg: { rating: true },
         _count: { rating: true },
       })

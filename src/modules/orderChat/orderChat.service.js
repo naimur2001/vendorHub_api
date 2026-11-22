@@ -54,7 +54,8 @@ const present = (role) => (m) => ({
   id: m.id,
   senderRole: m.senderRole,
   mine: m.senderRole === role,
-  body: m.body,
+  body: m.isHidden ? null : m.body, // hidden by an admin after a report
+  hidden: Boolean(m.isHidden),
   createdAt: m.createdAt,
   readAt: m.readAt,
 });

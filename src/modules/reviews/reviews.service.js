@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
+import { autoFlagReview } from '../moderation/moderation.service.js';
 
 const reviewInclude = {
   user: { select: { name: true } },
@@ -56,6 +57,7 @@ export async function createReview(user, { orderId, type, productId, rating, com
     },
     include: reviewInclude,
   });
+  await autoFlagReview(created); // links, phone numbers or repeated text -> an OPEN flag for the admins
   return reviewOut(created);
 }
 
@@ -63,6 +65,7 @@ export async function updateReview(user, id, data) {
   const review = await prisma.review.findFirst({ where: { id, userId: user.id } });
   if (!review) throw new AppError(404, 'Review not found');
   const updated = await prisma.review.update({ where: { id }, data, include: reviewInclude });
+  if ('comment' in data) await autoFlagReview(updated);
   return reviewOut(updated);
 }
 
@@ -77,12 +80,12 @@ export async function deleteReview(user, id) {
 
 export async function productReviews(slug, { page, limit }) {
   const product = await prisma.product.findFirst({
-    where: { slug, isActive: true },
+    where: { slug, isActive: true, moderationStatus: 'APPROVED' },
     select: { id: true },
   });
   if (!product) throw new AppError(404, 'Product not found');
 
-  const where = { productId: product.id, type: 'PRODUCT' };
+  const where = { productId: product.id, type: 'PRODUCT', isHidden: false }; // hidden by moderation: left out
   const [total, rows, agg, groups] = await Promise.all([
     prisma.review.count({ where }),
     prisma.review.findMany({

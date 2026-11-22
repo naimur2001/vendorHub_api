@@ -167,7 +167,7 @@ export async function shopDashboard(user, shopId) {
       select: { id: true, status: true, targetLevel: true },
     }),
     prisma.review.aggregate({
-      where: { shopId, type: 'SHOP_TRUST' },
+      where: { shopId, type: 'SHOP_TRUST', isHidden: false },
       _avg: { rating: true },
       _count: { rating: true },
     }),
