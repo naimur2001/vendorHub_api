@@ -3,6 +3,14 @@ import { SOCIAL_KEYS, checkSocialLink } from '../../lib/socialLinks.js';
 import { districtKey } from '../../lib/districts.js';
 import { hoursSchema, weekday } from '../../lib/openingHours.js';
 
+// GET /shops/near: the visitor's point and a search radius
+export const nearShopsQuery = z.object({
+  lat: z.coerce.number().min(-90).max(90),
+  lng: z.coerce.number().min(-180).max(180),
+  radiusKm: z.coerce.number().positive().max(20).default(5),
+  limit: z.coerce.number().int().min(1).max(20).default(20),
+});
+
 // PUT replaces both: hours null = not set (openNow null); weeklyHoliday null = use the market's.
 export const shopHoursSchema = z.object({
   hours: hoursSchema.nullable(),

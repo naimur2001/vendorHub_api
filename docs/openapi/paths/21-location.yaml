@@ -1,0 +1,107 @@
+# Location: shops near a point, market coordinates on cards, distance on a product's listings.
+# A visitor's coordinates are used only to answer the request: never stored, and masked in the logs.
+paths:
+  /api/v1/shops/near:
+    get:
+      tags: [Shops]
+      operationId: nearShops
+      summary: Shops near a point, nearest first (no login)
+      description: |
+        Distance = great-circle (Haversine) distance to the shop's market. Shops whose market has no
+        coordinates are left out. distanceKm is rounded to 0.1.
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+            minimum: -90
+            maximum: 90
+          example: 23.8133
+        - name: lng
+          in: query
+          required: true
+          schema:
+            type: number
+            minimum: -180
+            maximum: 180
+          example: 90.4246
+        - name: radiusKm
+          in: query
+          schema:
+            type: number
+            minimum: 0
+            exclusiveMinimum: true
+            maximum: 20
+            default: 5
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 20
+      responses:
+        '200':
+          description: The shops inside the radius, nearest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    maxItems: 20
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/ShopSearchItem'
+                        - type: object
+                          required: [distanceKm]
+                          properties:
+                            distanceKm:
+                              type: number
+                              example: 7.7
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+components:
+  parameters:
+    VisitorLat:
+      name: lat
+      in: query
+      required: false
+      description: The visitor's latitude; with lng, every listing gets distanceKm. Send both or neither (else 400).
+      schema:
+        type: number
+        minimum: -90
+        maximum: 90
+    VisitorLng:
+      name: lng
+      in: query
+      required: false
+      description: The visitor's longitude; see lat.
+      schema:
+        type: number
+        minimum: -180
+        maximum: 180
+  schemas:
+    MarketRef:
+      type: object
+      required: [id, name, slug, latitude, longitude]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        latitude:
+          type: number
+          nullable: true
+        longitude:
+          type: number
+          nullable: true

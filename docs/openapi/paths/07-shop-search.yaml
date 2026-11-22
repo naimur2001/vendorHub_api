@@ -127,17 +127,9 @@ components:
         verificationLevel:
           $ref: '#/components/schemas/VerificationLevel'
         market:
-          type: object
+          allOf:
+            - $ref: '#/components/schemas/MarketRef'
           nullable: true
-          required: [id, name, slug]
-          properties:
-            id:
-              type: string
-              format: uuid
-            name:
-              type: string
-            slug:
-              type: string
         coverPhoto:
           type: object
           nullable: true

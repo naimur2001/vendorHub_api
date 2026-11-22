@@ -44,6 +44,8 @@ export async function listMarkets({ district, q } = {}) {
     city: m.city,
     district: m.district,
     address: m.address,
+    latitude: m.latitude,
+    longitude: m.longitude,
     shopCount: m._count.shops,
     image: presentImage(m.image),
   }));
@@ -93,7 +95,7 @@ export async function getShop(slug, userId) {
   const shop = await prisma.shop.findFirst({
     where: { slug, isActive: true },
     include: {
-      market: { select: { id: true, name: true, slug: true, weeklyHoliday: true } },
+      market: { select: { id: true, name: true, slug: true, weeklyHoliday: true, latitude: true, longitude: true } },
       _count: { select: { followers: true, staff: true, photos: true } },
       photos: { where: { isCover: true }, take: 1, select: { url: true, kind: true, verifiedAt: true } },
     },
@@ -141,7 +143,13 @@ export async function getShop(slug, userId) {
     phone: shop.phone,
     whatsapp: shop.whatsapp,
     socialLinks: presentSocialLinks(shop.socialLinks),
-    market: shop.market && { id: shop.market.id, name: shop.market.name, slug: shop.market.slug },
+    market: shop.market && {
+      id: shop.market.id,
+      name: shop.market.name,
+      slug: shop.market.slug,
+      latitude: shop.market.latitude,
+      longitude: shop.market.longitude,
+    },
     ...presentHours(shop),
     verification: { level: shop.verificationLevel, lastAuditedAt: shop.lastAuditedAt },
     supportsDelivery: shop.supportsDelivery,
@@ -422,8 +430,13 @@ export async function searchShops({ q, marketId, verifiedOnly, page, limit }) {
     total = Number(counted[0].total);
   }
 
-  // Card data for this page only: shop fields, cover photo, shop-trust rating, active listings.
-  const ids = rows.map((r) => r.id);
+  const items = await shopCards(rows.map((r) => r.id));
+  return { items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+}
+
+// Shop cards for these ids, in this order: shop fields, the market (with its coordinates), hours,
+// cover photo, shop-trust rating, active listings. Shared by the shop search and "near me".
+async function shopCards(ids) {
   const [shops, ratings, listingCounts] = ids.length
     ? await Promise.all([
         prisma.shop.findMany({
@@ -441,7 +454,7 @@ export async function searchShops({ q, marketId, verifiedOnly, page, limit }) {
             verificationLevel: true,
             hours: true,
             weeklyHoliday: true,
-            market: { select: { id: true, name: true, slug: true, weeklyHoliday: true } },
+            market: { select: { id: true, name: true, slug: true, weeklyHoliday: true, latitude: true, longitude: true } },
             photos: { where: { isCover: true }, take: 1, select: { url: true, kind: true, verifiedAt: true } },
           },
         }),
@@ -465,7 +478,7 @@ export async function searchShops({ q, marketId, verifiedOnly, page, limit }) {
 
   // Built field by field, in the SQL order, so nothing extra can slip into the answer.
   const now = new Date(); // one moment for the whole page, so openNow is consistent
-  const items = ids.map((id) => {
+  return ids.map((id) => {
     const s = shopOf.get(id);
     const cover = s.photos[0];
     const rating = ratingOf.get(id);
@@ -480,7 +493,13 @@ export async function searchShops({ q, marketId, verifiedOnly, page, limit }) {
       whatsapp: s.whatsapp,
       socialLinks: presentSocialLinks(s.socialLinks),
       verificationLevel: s.verificationLevel,
-      market: s.market && { id: s.market.id, name: s.market.name, slug: s.market.slug },
+      market: s.market && {
+        id: s.market.id,
+        name: s.market.name,
+        slug: s.market.slug,
+        latitude: s.market.latitude,
+        longitude: s.market.longitude,
+      },
       ...presentHours(s, now),
       coverPhoto: cover ? { url: cover.url, kind: cover.kind, verified: cover.verifiedAt !== null } : null,
       ratingAverage: rating ? round1(rating._avg.rating) : null,
@@ -488,6 +507,29 @@ export async function searchShops({ q, marketId, verifiedOnly, page, limit }) {
       productCount: countOf.get(id) ?? 0,
     };
   });
+}
 
-  return { items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+// ---------- shops near a point ----------
+// Distance = great-circle (Haversine) distance to the shop's MARKET, in SQL; shops whose market has
+// no coordinates are left out. The visitor's coordinates are only used for this query: never
+// stored, and masked in the request log (see app.js).
+const EARTH_KM = 6371;
+export async function nearShops({ lat, lng, radiusKm, limit }) {
+  // LEAST(1, ...): rounding can push the value a hair above 1, where asin is undefined
+  const distance = Prisma.sql`(${2 * EARTH_KM} * asin(LEAST(1, sqrt(
+      power(sin(radians(m.latitude - ${lat}::float8) / 2), 2)
+      + cos(radians(${lat}::float8)) * cos(radians(m.latitude)) * power(sin(radians(m.longitude - ${lng}::float8) / 2), 2)
+    ))))`;
+  const rows = await prisma.$queryRaw`
+    SELECT id, "distanceKm" FROM (
+      SELECT s.id, ${distance} AS "distanceKm"
+      FROM "Shop" s
+      JOIN "Market" m ON m.id = s."marketId"
+      WHERE s."isActive" = true AND m.latitude IS NOT NULL AND m.longitude IS NOT NULL
+    ) d
+    WHERE "distanceKm" <= ${radiusKm}::float8
+    ORDER BY "distanceKm" ASC, id ASC
+    LIMIT ${limit}`;
+  const cards = await shopCards(rows.map((r) => r.id));
+  return cards.map((card, i) => ({ ...card, distanceKm: Math.round(Number(rows[i].distanceKm) * 10) / 10 }));
 }

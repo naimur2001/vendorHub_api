@@ -52,6 +52,11 @@ export const setHours = async (req, res) => {
   res.json({ success: true, data });
 };
 
+// public: shops near a point, nearest first
+export const nearShops = async (req, res) => {
+  res.json({ success: true, data: await shopService.nearShops(req.validated) });
+};
+
 // public shop search
 export const searchShops = async (req, res) => {
   const { items, pagination } = await shopService.searchShops(req.validated);

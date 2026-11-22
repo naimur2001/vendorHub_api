@@ -71,7 +71,8 @@ app.use(
     logger,
     // one short line per request instead of the full request/response objects
     serializers: {
-      req: (req) => ({ method: req.method, url: req.url }),
+      // a visitor's location (?lat=&lng=) is never written to the logs
+      req: (req) => ({ method: req.method, url: req.url.replace(/([?&](?:lat|lng)=)[^&#]*/gi, '$1-') }),
       res: (res) => ({ statusCode: res.statusCode }),
     },
     customLogLevel: (req, res, err) => {

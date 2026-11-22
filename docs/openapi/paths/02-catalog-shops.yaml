@@ -140,6 +140,8 @@ paths:
           schema:
             type: string
             format: uuid
+        - $ref: '#/components/parameters/VisitorLat'
+        - $ref: '#/components/parameters/VisitorLng'
       responses:
         '200':
           description: The product page.
@@ -166,6 +168,8 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: '#/components/parameters/VisitorLat'
+        - $ref: '#/components/parameters/VisitorLng'
       responses:
         '200':
           description: All listings of the product.
@@ -712,7 +716,7 @@ components:
           nullable: true
         market:
           allOf:
-            - $ref: '#/components/schemas/IdNameSlug'
+            - $ref: '#/components/schemas/MarketRef'
           nullable: true
         rating:
           type: object
@@ -740,6 +744,13 @@ components:
           nullable: true
         shop:
           $ref: '#/components/schemas/ListingShop'
+        distanceKm:
+          type: number
+          nullable: true
+          example: 7.9
+          description: |
+            Only when the request has ?lat=&lng=: kilometres (rounded to 0.1) from that point to the shop's
+            market; null when the market has no coordinates.
     ProductDetail:
       type: object
       properties:
@@ -983,7 +994,7 @@ components:
               nullable: true
         market:
           allOf:
-            - $ref: '#/components/schemas/IdNameSlug'
+            - $ref: '#/components/schemas/MarketRef'
           nullable: true
         verification:
           type: object

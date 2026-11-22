@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { optionalPoint, bothOrNeither } from '../../lib/geo.js';
 
 export const listProductsQuery = z.object({
   q: z.string().trim().min(1).optional(),
@@ -14,6 +15,11 @@ export const listProductsQuery = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(12),
 });
 
-export const productDetailQuery = z.object({
-  listingId: z.string().uuid().optional(),
-});
+// ?lat=&lng= (optional, both or neither): each listing gets distanceKm to its shop's market
+export const productDetailQuery = z
+  .object({
+    listingId: z.string().uuid().optional(),
+    ...optionalPoint,
+  })
+  .refine(...bothOrNeither);
+export const productListingsQuery = z.object({ ...optionalPoint }).refine(...bothOrNeither);

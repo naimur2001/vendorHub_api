@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { validate, validateQuery } from '../../middlewares/validate.js';
 import { authenticate, optionalAuth, requireRole } from '../../middlewares/auth.js';
-import { marketsQuery, shopProductsQuery, shopReviewsQuery, shopSearchQuery, createShopSchema, updateShopSchema, shopHoursSchema } from './shops.schema.js';
+import { marketsQuery, shopProductsQuery, shopReviewsQuery, shopSearchQuery, createShopSchema, updateShopSchema, shopHoursSchema, nearShopsQuery } from './shops.schema.js';
 import * as c from './shops.controller.js';
 import { requireVerifiedEmail } from '../../middlewares/verifiedEmail.js';
 import { uploadLimiter } from '../../middlewares/rateLimit.js';
@@ -14,6 +14,7 @@ router.get('/markets/:slug', c.market);
 
 router.post('/shops', authenticate, requireRole('SHOP_OWNER', 'ADMIN'), requireVerifiedEmail, validate(createShopSchema), c.createShop);
 router.get('/shops', validateQuery(shopSearchQuery), c.searchShops);
+router.get('/shops/near', validateQuery(nearShopsQuery), c.nearShops); // before /shops/:slug
 router.get('/shops/:slug', optionalAuth, c.shop);
 router.get('/shops/:slug/products', validateQuery(shopProductsQuery), c.shopProducts);
 router.get('/shops/:slug/categories', c.shopCategories);

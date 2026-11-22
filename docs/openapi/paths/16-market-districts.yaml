@@ -272,11 +272,11 @@ components:
         latitude:
           type: number
           nullable: true
-          description: Detail answer only.
+          description: Set by an admin; null when not set.
         longitude:
           type: number
           nullable: true
-          description: Detail answer only.
+          description: Set by an admin; null when not set.
         shopCount:
           type: integer
           description: List answer only (active shops).

@@ -80,7 +80,7 @@ $r = Call 'GET' '/markets' $null $null
 Check 'the market list works' $r.status 200
 $all = @($r.json.data)
 Need ($all.Count -ge 5) 'reading the seed markets (reseed first)'
-Check 'a list item has the same fields as before plus district' (Keys $all[0]) 'address,city,district,id,image,name,shopCount,slug'
+Check 'a list item has the same fields as before plus district' (Keys $all[0]) 'address,city,district,id,image,latitude,longitude,name,shopCount,slug'
 Check 'every market has a district' (@($all | Where-Object { -not $_.district }).Count) 0
 $bySlug = @{}
 foreach ($m in $all) { $bySlug[$m.slug] = $m }
@@ -101,9 +101,9 @@ Check 'a market in another district has its page' $d.status 200
 Check 'with its district' $d.json.data.district 'chattogram'
 
 $shop = (Call 'GET' '/shops/techzone-electronics' $null $null).json.data
-Check 'the small market object of a shop is unchanged' (Keys $shop.market) 'id,name,slug'
+Check 'the small market object of a shop has its coordinates' (Keys $shop.market) 'id,latitude,longitude,name,slug'
 $card = @((Call 'GET' '/shops?q=TechZone' $null $null).json.data | Where-Object { $_.slug -eq 'techzone-electronics' })[0]
-Check 'the small market object in the shop search is unchanged' (Keys $card.market) 'id,name,slug'
+Check 'the small market object in the shop search has its coordinates' (Keys $card.market) 'id,latitude,longitude,name,slug'
 
 # ---- 2. the district filter ----
 $ctg = @(Markets '?district=chattogram')
@@ -111,7 +111,7 @@ Check 'district=chattogram finds Sanmar Ocean City' (@($ctg | Where-Object { $_.
 Check 'district=chattogram keeps only that district' (@($ctg | Where-Object { $_.district -ne 'chattogram' }).Count) 0
 $dhaka = @(Markets '?district=dhaka')
 Check 'district=dhaka is the dhaka part of the full list, in the same order' (Slugs $dhaka) (Slugs @($all | Where-Object { $_.district -eq 'dhaka' }))
-Check 'a filtered item has the same fields' (Keys $dhaka[0]) 'address,city,district,id,image,name,shopCount,slug'
+Check 'a filtered item has the same fields' (Keys $dhaka[0]) 'address,city,district,id,image,latitude,longitude,name,shopCount,slug'
 $r = Call 'GET' '/markets?district=barguna' $null $null
 Check 'a district without markets answers 200' $r.status 200
 Check 'with an empty list' (@($r.json.data).Count) 0

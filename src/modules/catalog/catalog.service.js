@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { thumbFor } from '../../lib/storage.js';
+import { distanceKm } from '../../lib/geo.js';
 const AVAILABILITY_RANK = { IN_STOCK: 4, AVAILABLE: 3, LIMITED: 2, OUT_OF_STOCK: 1 };
 
 // The "best" availability among a product's listings (used on product cards).
@@ -161,7 +162,9 @@ export async function listProducts(query) {
   return { items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
 }
 
-export async function getProduct(slug, listingId) {
+// point: the visitor's { lat, lng } or null; with a point every listing gets distanceKm (to the
+// shop's market; null when the market has no coordinates). The point is not stored or logged.
+export async function getProduct(slug, listingId, point = null) {
   const product = await prisma.product.findFirst({
     where: { slug, isActive: true },
     include: {
@@ -185,7 +188,7 @@ export async function getProduct(slug, listingId) {
               supportsDelivery: true,
               supportsPickup: true,
               avgResponseMins: true,
-              market: { select: { id: true, name: true, slug: true } },
+              market: { select: { id: true, name: true, slug: true, latitude: true, longitude: true } },
             },
           },
         },
@@ -218,6 +221,7 @@ export async function getProduct(slug, listingId) {
     bargainEnabled: l.bargainEnabled,
     discountPercent: product.msrp ? Math.round((1 - l.price / product.msrp) * 100) : null,
     shop: { ...l.shop, rating: ratings.get(l.shop.id) ?? { average: null, count: 0 } },
+    ...(point && { distanceKm: distanceKm(point, l.shop.market) }),
   });
 
   // Selected listing: the one in the URL, else the cheapest that is not out of stock
@@ -250,7 +254,7 @@ export async function getProduct(slug, listingId) {
 }
 
 // Compare table: every shop's listing for this product, cheapest first
-export async function getProductListings(slug) {
-  const { selectedListing, otherListings } = await getProduct(slug);
+export async function getProductListings(slug, point = null) {
+  const { selectedListing, otherListings } = await getProduct(slug, undefined, point);
   return [selectedListing, ...otherListings].filter(Boolean).sort((a, b) => a.price - b.price);
 }
