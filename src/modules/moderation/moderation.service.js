@@ -25,7 +25,32 @@ async function assertTarget(kind, targetId) {
   if (!ok) throw new AppError(404, kind === 'SHOP' ? 'Shop not found' : 'Product not found');
 }
 
-const presentSlot = (s) => ({
+// What each slot points at, for the admin list: one query per kind, inactive targets included
+// (so an admin can see and remove them). A deleted shop or product -> no entry -> target null.
+async function loadTargets(slots) {
+  const ids = (kind) => [...new Set(slots.filter((s) => s.kind === kind).map((s) => s.targetId))];
+  const shopIds = ids('SHOP');
+  const productIds = ids('PRODUCT');
+  const [shops, products] = await Promise.all([
+    shopIds.length
+      ? prisma.shop.findMany({ where: { id: { in: shopIds } }, select: { id: true, name: true, slug: true, isActive: true } })
+      : [],
+    productIds.length
+      ? prisma.product.findMany({
+          where: { id: { in: productIds } },
+          select: { id: true, title: true, slug: true, isActive: true, moderationStatus: true },
+        })
+      : [],
+  ]);
+  const map = new Map();
+  for (const x of shops) map.set(`SHOP:${x.id}`, { name: x.name, slug: x.slug, isActive: x.isActive });
+  for (const x of products) {
+    map.set(`PRODUCT:${x.id}`, { name: x.title, slug: x.slug, isActive: x.isActive, moderationStatus: x.moderationStatus });
+  }
+  return map;
+}
+
+const presentSlot = (s, targets) => ({
   id: s.id,
   kind: s.kind,
   targetId: s.targetId,
@@ -34,14 +59,21 @@ const presentSlot = (s) => ({
   endsAt: s.endsAt,
   liveNow: live(s),
   createdAt: s.createdAt,
+  target: targets.get(`${s.kind}:${s.targetId}`) ?? null,
 });
+
+const presentSlots = async (slots) => {
+  const targets = await loadTargets(slots);
+  return slots.map((s) => presentSlot(s, targets));
+};
+const presentOne = async (slot) => (await presentSlots([slot]))[0];
 
 export async function listFeaturedAdmin({ kind }) {
   const rows = await prisma.featuredSlot.findMany({
     where: kind ? { kind } : {},
     orderBy: [{ kind: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
   });
-  return rows.map(presentSlot);
+  return presentSlots(rows);
 }
 
 export async function createFeatured(admin, { kind, targetId, startsAt, endsAt }) {
@@ -61,7 +93,7 @@ export async function createFeatured(admin, { kind, targetId, startsAt, endsAt }
       await audit(tx, admin, 'featured.created', 'FeaturedSlot', s.id, { kind, targetId });
       return s;
     });
-    return presentSlot(slot);
+    return presentOne(slot);
   } catch (err) {
     if (err.code === 'P2002') throw new AppError(409, 'This item is already featured', { code: 'FEATURED_DUPLICATE' });
     throw err;
@@ -79,7 +111,7 @@ export async function updateFeatured(admin, id, input) {
     await audit(tx, admin, 'featured.updated', 'FeaturedSlot', id, { fields: Object.keys(input) });
     return s;
   });
-  return presentSlot(updated);
+  return presentOne(updated);
 }
 
 export async function deleteFeatured(admin, id) {

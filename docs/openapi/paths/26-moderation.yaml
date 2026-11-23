@@ -526,8 +526,26 @@ components:
       enum: [SPAM, ABUSE, SCAM, PERSONAL_INFO, OFF_TOPIC, OTHER]
     FeaturedSlot:
       type: object
-      required: [id, kind, targetId, sortOrder, startsAt, endsAt, liveNow, createdAt]
+      required: [id, kind, targetId, sortOrder, startsAt, endsAt, liveNow, createdAt, target]
       properties:
+        target:
+          type: object
+          nullable: true
+          description: >-
+            What the slot points at, also when it is scheduled, ended or inactive (so it can be removed).
+            null = the shop or product was deleted. moderationStatus only for PRODUCT slots.
+          required: [name, slug, isActive]
+          properties:
+            name:
+              type: string
+              description: The shop name, or the product title.
+            slug:
+              type: string
+            isActive:
+              type: boolean
+            moderationStatus:
+              type: string
+              enum: [PENDING, APPROVED, REJECTED]
         id:
           type: string
           format: uuid
