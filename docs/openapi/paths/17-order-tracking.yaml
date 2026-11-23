@@ -87,8 +87,10 @@ components:
         actorRole:
           type: string
           nullable: true
-          enum: [CUSTOMER, SHOP, SYSTEM, null]
-          description: Who made the change. SYSTEM for rows backfilled from older orders.
+          enum: [CUSTOMER, SHOP, ADMIN, SYSTEM, null]
+          description: >-
+            Who made the change. ADMIN = a platform admin (also when an admin uses the shop order
+            endpoints). SYSTEM = automatic (reservation deadlines) or rows backfilled from older orders.
         createdAt:
           type: string
           format: date-time

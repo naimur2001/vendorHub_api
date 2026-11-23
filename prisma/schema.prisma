@@ -133,6 +133,7 @@ model User {
   reviews             Review[]
   follows             ShopFollow[]
   auditLogs           AuditLog[]
+  adminOrderNotes     AdminOrderNote[]
   passwordResetTokens PasswordResetToken[]
   notifications       Notification[]
   fileUploads         FileUpload[]
@@ -492,10 +493,15 @@ model SubOrder {
   couponCode    String?
   couponRedemption CouponRedemption?
   creditUsed    Int       @default(0) // referral credit spent on this order; total = subtotal - discount - creditUsed + deliveryFee
+  statusAt      DateTime  @default(now()) // when the current status was set (late-order rules)
+  shopRemindedAt DateTime? // the last admin "order is late" reminder (once per hour)
+  adminNotes    AdminOrderNote[]
 
   @@index([shopId, status])
   @@index([checkoutId])
   @@index([deliveryMethod, status, reservedUntil])
+  @@index([status, statusAt])
+  @@index([createdAt])
 }
 
 // A customer's saved listing. priceAtSave stays the price the customer saw (so priceDropped keeps
@@ -836,7 +842,8 @@ model OrderStatusEvent {
   subOrderId String
   status     OrderStatus
   note       String? // optional short reason, e.g. the cancel reason
-  actorRole  String? // "CUSTOMER" | "SHOP" | "SYSTEM" (no user ids exposed)
+  actorRole  String? // "CUSTOMER" | "SHOP" | "ADMIN" | "SYSTEM"
+  actorId    String? // who did it; only the admin order view shows the name, never the public timeline
   createdAt  DateTime    @default(now())
   subOrder   SubOrder    @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
 
@@ -1083,4 +1090,17 @@ model EmailVerificationToken {
   createdAt DateTime  @default(now())
 
   @@index([userId])
+}
+
+// Internal admin notes on an order. Never shown to the customer or the shop.
+model AdminOrderNote {
+  id         String   @id @default(uuid())
+  subOrderId String
+  authorId   String
+  body       String // 1-500 characters
+  createdAt  DateTime @default(now())
+  subOrder   SubOrder @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+  author     User     @relation(fields: [authorId], references: [id])
+
+  @@index([subOrderId, createdAt])
 }

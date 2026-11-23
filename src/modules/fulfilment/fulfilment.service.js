@@ -87,7 +87,7 @@ export async function restock(tx, orderId) {
 }
 
 // Everything that must happen when an order is cancelled (mock refund until a real gateway exists).
-async function cancelEffects(tx, order) {
+export async function cancelEffects(tx, order) {
   await restock(tx, order.id);
   await releasePromotions(tx, order.id); // flash-deal units and the coupon use come back
   if (order.paymentMethod === 'ONLINE' && order.paymentStatus === 'PAID') {
@@ -142,10 +142,14 @@ export async function getShopOrder(user, shopId, orderId) {
 }
 
 // One timeline row, written in the same transaction as the status change.
-const addEvent = (tx, subOrderId, status, actorRole, note) =>
+// actorRole: CUSTOMER | SHOP | ADMIN | SYSTEM; actorId is shown (as a name) only in the admin order view.
+export const addEvent = (tx, subOrderId, status, actorRole, note, actorId = null) =>
   tx.orderStatusEvent.create({
-    data: { subOrderId, status, actorRole, note: note || null },
+    data: { subOrderId, status, actorRole, actorId, note: note || null },
   });
+
+// An admin using the shop order endpoints acts as ADMIN, not as the shop.
+const shopSideRole = (user) => (user.role === 'ADMIN' ? 'ADMIN' : 'SHOP');
 
 export async function changeStatus(user, shopId, orderId, { status, reason }) {
   await assertShopAccess(user, shopId);
@@ -172,7 +176,7 @@ export async function changeStatus(user, shopId, orderId, { status, reason }) {
   await prisma.$transaction(async (tx) => {
     const changed = await tx.subOrder.updateMany({
       where: { id: orderId, status: order.status },
-      data: { status },
+      data: { status, statusAt: new Date() },
     });
     if (changed.count !== 1) {
       throw new AppError(409, 'This order just changed. Refresh and try again.');
@@ -190,7 +194,7 @@ export async function changeStatus(user, shopId, orderId, { status, reason }) {
       await tx.subOrder.update({ where: { id: orderId }, data: { paymentStatus: 'PAID' } });
     }
     // the guarded update above means the status really changed (same status is never a transition)
-    await addEvent(tx, orderId, status, 'SHOP', status === 'CANCELLED' ? reason : null);
+    await addEvent(tx, orderId, status, shopSideRole(user), status === 'CANCELLED' ? reason : null, user.id);
     await logChange(tx, user.id, 'order.status_changed', orderId, order.status, status, reason);
   });
   await notifyStatusChange(order, status, reason); // after the commit, never throws
@@ -212,13 +216,13 @@ export async function cancelByCustomer(userId, orderId, reason) {
   await prisma.$transaction(async (tx) => {
     const changed = await tx.subOrder.updateMany({
       where: { id: orderId, status: 'PLACED' },
-      data: { status: 'CANCELLED' },
+      data: { status: 'CANCELLED', statusAt: new Date() },
     });
     if (changed.count !== 1) {
       throw new AppError(409, 'This order just changed. Refresh and try again.');
     }
     await cancelEffects(tx, order);
-    await addEvent(tx, orderId, 'CANCELLED', 'CUSTOMER', reason);
+    await addEvent(tx, orderId, 'CANCELLED', 'CUSTOMER', reason, userId);
     await logChange(tx, userId, 'order.cancelled_by_customer', orderId, 'PLACED', 'CANCELLED', reason);
   });
   await notifyCustomerCancel(order, reason); // after the commit, never throws

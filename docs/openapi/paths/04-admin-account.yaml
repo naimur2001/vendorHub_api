@@ -48,6 +48,9 @@ paths:
       tags: [Dashboards]
       operationId: adminDashboard
       summary: Users, shops, orders and sales, queues, catalog counts, top shops and recent activity
+      description: >-
+        Also ordersLate (orders late by the admin order monitor's rules, see GET /admin/orders?late=any)
+        and ordersToday (orders placed since midnight, Asia/Dhaka).
       security:
         - bearerAuth: []
       responses:

@@ -28,3 +28,10 @@ export const MAX_REVIEW_PHOTOS = 3;
 
 // At most one price-drop notification per wishlist item in this time.
 export const PRICE_ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+// Admin order monitor: when an order counts as late.
+export const LATE_UNCONFIRMED_HOURS = 2; // PLACED and not confirmed (a reservation: after its confirmBy)
+export const LATE_DELIVERY_HOURS = 48; // OUT_FOR_DELIVERY for longer
+export const LATE_PICKUP_DAYS = 3; // READY_FOR_PICKUP for longer
+export const SHOP_REMINDER_EVERY_MS = 60 * 60 * 1000; // one "order is late" reminder per order per hour
+export const ADMIN_NOTE_MAX = 500;

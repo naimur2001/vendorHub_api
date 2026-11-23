@@ -1,0 +1,669 @@
+# Admin order monitor (ADMIN only; every call is audited: order.list_viewed, order.viewed,
+# order.chat_viewed, order.cancelled_by_admin, order.note_added, order.shop_reminded).
+# Late rules (src/config/limits.js):
+#   unconfirmed = PLACED and not confirmed 2 h after ordering (a reservation: after its confirmBy)
+#   delivery    = OUT_FOR_DELIVERY for more than 48 h
+#   pickup      = READY_FOR_PICKUP for more than 3 days
+paths:
+  /api/v1/admin/orders:
+    get:
+      tags: [Admin orders]
+      operationId: adminListOrders
+      summary: All orders with filters, late flags and summary counts (newest first)
+      description: >-
+        meta.counts uses the same filters except status and late, so the summary cards stay put while
+        one is selected. The audit entry stores which filters were used, never the search text.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - name: shopId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: deliveryMethod
+          in: query
+          schema:
+            type: string
+            enum: [STORE_PICKUP, VENDOR_DELIVERY, RESERVE_PICKUP]
+        - name: paymentMethod
+          in: query
+          schema:
+            type: string
+            enum: [ONLINE, PAY_AT_STORE, CASH_ON_DELIVERY]
+        - name: paymentStatus
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, PAID, FAILED, REFUNDED]
+        - name: q
+          in: query
+          description: Part of the order number, the customer's phone or email (2-100 characters).
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+        - name: from
+          in: query
+          description: First day (YYYY-MM-DD, Asia/Dhaka), inclusive.
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          description: Last day (YYYY-MM-DD, Asia/Dhaka), inclusive. Not before from (else 400).
+          schema:
+            type: string
+            format: date
+        - name: late
+          in: query
+          schema:
+            type: string
+            enum: [unconfirmed, delivery, pickup, any]
+        - $ref: '#/components/parameters/Page'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: One page of orders.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminOrderRow'
+                  meta:
+                    type: object
+                    required: [counts, pagination]
+                    properties:
+                      counts:
+                        type: object
+                        required: [byStatus, byLate]
+                        properties:
+                          byStatus:
+                            type: object
+                            required: [PLACED, CONFIRMED, READY_FOR_PICKUP, OUT_FOR_DELIVERY, COMPLETED, CANCELLED]
+                            additionalProperties:
+                              type: integer
+                          byLate:
+                            type: object
+                            required: [unconfirmed, delivery, pickup, any]
+                            additionalProperties:
+                              type: integer
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/admin/orders/{orderId}:
+    parameters:
+      - $ref: '#/components/parameters/AdminOrderId'
+    get:
+      tags: [Admin orders]
+      operationId: adminGetOrder
+      summary: The full order with timeline, payments, returns, contacts and internal notes
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/AdminOrderDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/orders/{orderId}/messages:
+    parameters:
+      - $ref: '#/components/parameters/AdminOrderId'
+    get:
+      tags: [Admin orders]
+      operationId: adminGetOrderChat
+      summary: The order chat, read only (hidden messages included and marked); audited as order.chat_viewed
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: after
+          in: query
+          description: Only messages after this message id (oldest first, at most 100).
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The messages.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [readOnly, messages]
+                    properties:
+                      readOnly:
+                        type: boolean
+                      messages:
+                        type: array
+                        items:
+                          type: object
+                          required: [id, senderRole, body, hidden, createdAt, readAt]
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            senderRole:
+                              type: string
+                              enum: [CUSTOMER, SHOP]
+                            body:
+                              type: string
+                            hidden:
+                              type: boolean
+                            createdAt:
+                              type: string
+                              format: date-time
+                            readAt:
+                              type: string
+                              format: date-time
+                              nullable: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/orders/{orderId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/AdminOrderId'
+    post:
+      tags: [Admin orders]
+      operationId: adminCancelOrder
+      summary: Cancel an open order (actorRole ADMIN; stock, deals, coupon and credit come back)
+      description: >-
+        A paid ONLINE order is refunded through the payment adapter (refundNeeded true in the answer).
+        The customer and the shop team are notified. 409 ORDER_CLOSED for a COMPLETED or CANCELLED order.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 3
+                  maxLength: 300
+      responses:
+        '200':
+          $ref: '#/components/responses/AdminOrderDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/admin/orders/{orderId}/notes:
+    parameters:
+      - $ref: '#/components/parameters/AdminOrderId'
+    post:
+      tags: [Admin orders]
+      operationId: adminAddOrderNote
+      summary: Add an internal note (never shown to the customer or the shop)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [body]
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        '201':
+          description: The note.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/AdminOrderNote'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/orders/{orderId}/remind-shop:
+    parameters:
+      - $ref: '#/components/parameters/AdminOrderId'
+    post:
+      tags: [Admin orders]
+      operationId: adminRemindShop
+      summary: Notify the shop team that the order is late (once per hour per order)
+      description: >-
+        Notification type ORDER_LATE_REMINDER. 409 ORDER_NOT_LATE when the order is not late;
+        429 REMINDER_TOO_SOON (error.details.retryAt) within an hour of the last reminder.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sent.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [reminded, lateReason, recipients, nextReminderAt]
+                    properties:
+                      reminded:
+                        type: boolean
+                      lateReason:
+                        $ref: '#/components/schemas/LateReason'
+                      recipients:
+                        type: integer
+                      nextReminderAt:
+                        type: string
+                        format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+components:
+  parameters:
+    AdminOrderId:
+      name: orderId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    AdminOrderDetail:
+      description: The order.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                $ref: '#/components/schemas/AdminOrderDetail'
+  schemas:
+    LateReason:
+      type: string
+      nullable: true
+      enum: [unconfirmed, delivery, pickup, null]
+    AdminOrderShop:
+      type: object
+      required: [id, name, slug]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+    AdminOrderDelivery:
+      type: object
+      required: [method, fee, reservedUntil, confirmBy]
+      properties:
+        method:
+          type: string
+          enum: [STORE_PICKUP, VENDOR_DELIVERY, RESERVE_PICKUP]
+        fee:
+          type: integer
+        reservedUntil:
+          type: string
+          format: date-time
+          nullable: true
+        confirmBy:
+          type: string
+          format: date-time
+          nullable: true
+        address:
+          type: string
+          nullable: true
+          description: Detail view only.
+    AdminOrderPayment:
+      type: object
+      required: [method, status]
+      properties:
+        method:
+          type: string
+          enum: [ONLINE, PAY_AT_STORE, CASH_ON_DELIVERY]
+        status:
+          type: string
+          enum: [PENDING, PAID, FAILED, REFUNDED]
+    AdminOrderRow:
+      type: object
+      required: [id, orderNumber, shop, customer, status, lateReason, delivery, payment, total, createdAt, lastStatusAt, openReturn, messageCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderNumber:
+          type: string
+        shop:
+          $ref: '#/components/schemas/AdminOrderShop'
+        customer:
+          type: object
+          required: [name, phone]
+          properties:
+            name:
+              type: string
+            phone:
+              type: string
+              nullable: true
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        lateReason:
+          $ref: '#/components/schemas/LateReason'
+        delivery:
+          $ref: '#/components/schemas/AdminOrderDelivery'
+        payment:
+          $ref: '#/components/schemas/AdminOrderPayment'
+        total:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        lastStatusAt:
+          type: string
+          format: date-time
+        openReturn:
+          type: boolean
+        messageCount:
+          type: integer
+    AdminOrderNote:
+      type: object
+      required: [id, body, author, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        body:
+          type: string
+        author:
+          type: object
+          required: [id, name]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+        createdAt:
+          type: string
+          format: date-time
+    AdminOrderDetail:
+      type: object
+      required: [id, orderNumber, status, lateReason, createdAt, lastStatusAt, completedAt, shopRemindedAt, delivery, payment, items, subtotal, couponCode, discount, creditUsed, total, statusEvents, payments, returns, openReturn, messageCount, shop, customer, adminNotes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderNumber:
+          type: string
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        lateReason:
+          $ref: '#/components/schemas/LateReason'
+        createdAt:
+          type: string
+          format: date-time
+        lastStatusAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        shopRemindedAt:
+          type: string
+          format: date-time
+          nullable: true
+        delivery:
+          $ref: '#/components/schemas/AdminOrderDelivery'
+        payment:
+          $ref: '#/components/schemas/AdminOrderPayment'
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, listingId, title, unitPrice, quantity, lineTotal, bargained, flashDeal]
+            properties:
+              id:
+                type: string
+                format: uuid
+              listingId:
+                type: string
+                format: uuid
+              title:
+                type: string
+              unitPrice:
+                type: integer
+              quantity:
+                type: integer
+              lineTotal:
+                type: integer
+              bargained:
+                type: boolean
+              flashDeal:
+                type: boolean
+        subtotal:
+          type: integer
+        couponCode:
+          type: string
+          nullable: true
+        discount:
+          type: integer
+        creditUsed:
+          type: integer
+        total:
+          type: integer
+        refundNeeded:
+          type: boolean
+          description: Only in the cancel answer. true = the order was paid ONLINE and is refunded.
+        statusEvents:
+          type: array
+          items:
+            type: object
+            required: [status, note, actorRole, actorName, createdAt]
+            properties:
+              status:
+                $ref: '#/components/schemas/OrderStatus'
+              note:
+                type: string
+                nullable: true
+              actorRole:
+                type: string
+                nullable: true
+                enum: [CUSTOMER, SHOP, ADMIN, SYSTEM, null]
+              actorName:
+                type: string
+                nullable: true
+                description: Only for ADMIN rows (shop staff and customers stay anonymous).
+              createdAt:
+                type: string
+                format: date-time
+        payments:
+          type: array
+          items:
+            type: object
+            required: [id, provider, providerRef, amount, status, createdAt, callbackAt]
+            properties:
+              id:
+                type: string
+                format: uuid
+              provider:
+                type: string
+              providerRef:
+                type: string
+                nullable: true
+              amount:
+                type: integer
+              status:
+                type: string
+                enum: [PENDING, PAID, FAILED, REFUNDED]
+              createdAt:
+                type: string
+                format: date-time
+              callbackAt:
+                type: string
+                format: date-time
+                nullable: true
+        returns:
+          type: array
+          items:
+            type: object
+            required: [id, reason, description, status, resolutionNote, createdAt, updatedAt]
+            properties:
+              id:
+                type: string
+                format: uuid
+              reason:
+                type: string
+              description:
+                type: string
+              status:
+                type: string
+                enum: [REQUESTED, REJECTED, ESCALATED, REFUNDED, CLOSED]
+              resolutionNote:
+                type: string
+                nullable: true
+              createdAt:
+                type: string
+                format: date-time
+              updatedAt:
+                type: string
+                format: date-time
+        openReturn:
+          type: boolean
+        messageCount:
+          type: integer
+        shop:
+          type: object
+          required: [id, name, slug, phone, whatsapp, addressLine, shopNumber, market, owner]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            slug:
+              type: string
+            phone:
+              type: string
+              nullable: true
+            whatsapp:
+              type: string
+              nullable: true
+            addressLine:
+              type: string
+              nullable: true
+            shopNumber:
+              type: string
+              nullable: true
+            market:
+              type: object
+              nullable: true
+              required: [name, slug]
+              properties:
+                name:
+                  type: string
+                slug:
+                  type: string
+            owner:
+              type: object
+              required: [name, email, phone]
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                  nullable: true
+                phone:
+                  type: string
+                  nullable: true
+        customer:
+          type: object
+          required: [id, name, email, phone]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            email:
+              type: string
+              nullable: true
+            phone:
+              type: string
+              nullable: true
+        adminNotes:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminOrderNote'

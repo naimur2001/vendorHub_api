@@ -23,7 +23,7 @@ async function autoCancel(order, reason) {
   const cancelled = await prisma.$transaction(async (tx) => {
     const claimed = await tx.subOrder.updateMany({
       where: { id: order.id, status: order.status },
-      data: { status: 'CANCELLED' },
+      data: { status: 'CANCELLED', statusAt: new Date() },
     });
     if (claimed.count !== 1) return false; // already changed by the shop or by another run
     await restock(tx, order.id);
