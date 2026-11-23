@@ -1,6 +1,7 @@
 # test-product-sorts.ps1 (GET /products: sort oldest / trending / popular, filter bargain=true)
 # Run from the project root while "npm run dev" is running in another terminal (mock modes).
 # Makes 4 fresh products with one search tag, so the order of exactly these 4 can be checked.
+# Everything it makes is deleted again at the end (scripts/product-sorts-test-helper.mjs cleanup).
 $base = 'http://localhost:4000/api/v1'
 $script:pass = 0
 $script:fail = 0
@@ -52,6 +53,8 @@ function Login($email) {
 function Need($value, $what) {
     if (-not $value) {
         Write-Host "Cannot continue: $what failed. Server said: $($script:lastMsg)" -ForegroundColor Red
+        $ids = @($p.Values | ForEach-Object { $_.id })
+        if ($ids.Count -gt 0) { node --env-file=.env scripts/product-sorts-test-helper.mjs cleanup $since @ids | Out-Null }
         exit 1
     }
 }
@@ -62,6 +65,7 @@ catch {
     exit 1
 }
 
+$since = [DateTime]::UtcNow.AddSeconds(-2).ToString('o')
 $cust = Login 'customer@vendorshub.test'
 $owner = Login 'owner1@vendorshub.test'
 $admin = Login 'admin@vendorshub.test'
@@ -187,6 +191,15 @@ Check 'shopId of the other shop + popular lists B' (Names "shopId=$shop2&sort=po
 Check 'bargain=true + popular: B counts 0 there (its 5 units were at TechZone), so it is last' (Names 'bargain=true&sort=popular') 'A,D,C,B'
 Call 'DELETE' "/shops/$shop2/listings/$($l2.json.data.id)" $owner2 $null | Out-Null
 Check 'after removing that listing, bargain=true + popular is back to A,D,C' (Names 'bargain=true&sort=popular') 'A,D,C'
+
+# ---- 8. cleanup: no test data left ----
+Call 'DELETE' '/cart' $cust $null | Out-Null
+$ids = @($p.Values | ForEach-Object { $_.id })
+$out = node --env-file=.env scripts/product-sorts-test-helper.mjs cleanup $since @ids | Select-Object -Last 1 | ConvertFrom-Json
+Write-Host "INFO  cleanup: $($out.products) products, $($out.listings) listings, $($out.orders) orders, $($out.notifications) notifications removed"
+Check 'cleanup removed the 4 test products' $out.products 4
+Check 'cleanup removed the 3 test orders' $out.orders 3
+Check 'nothing with the tag is left' (Names 'sort=oldest') ''
 
 Write-Host ''
 Write-Host "Passed: $($script:pass)   Failed: $($script:fail)"
