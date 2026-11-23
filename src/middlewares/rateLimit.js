@@ -63,3 +63,5 @@ export const bannerUploadLimiter = rateLimit({
   legacyHeaders: false,
   message: { success: false, error: { message: 'Too many uploads. Please try again later.' } },
 });
+// Shop To-Let: new listings, enquiries and their uploads from one IP (guests too). Like login, off in development.
+export const toLetLimiter = make(20, { windowMs: 60 * 60 * 1000 });

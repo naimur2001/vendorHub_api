@@ -97,8 +97,18 @@ components:
   schemas:
     User:
       type: object
-      required: [id, name, email, phone, role, avatarUrl, emailVerified, deletionScheduledFor, smsOptOut]
+      required: [id, name, email, phone, role, avatarUrl, emailVerified, deletionScheduledFor, smsOptOut, birthYear, gender]
+      description: The user's OWN account (session, /auth/me, PATCH /users/me). birthYear and gender appear only here.
       properties:
+        birthYear:
+          type: integer
+          nullable: true
+          description: Private; cleared when the account is deleted.
+        gender:
+          type: string
+          nullable: true
+          enum: [FEMALE, MALE, OTHER, PREFER_NOT_TO_SAY, null]
+          description: Private; cleared when the account is deleted.
         smsOptOut:
           type: boolean
           description: true = no order status SMS / WhatsApp (PATCH /users/me).

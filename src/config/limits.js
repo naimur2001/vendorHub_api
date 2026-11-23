@@ -35,3 +35,13 @@ export const LATE_DELIVERY_HOURS = 48; // OUT_FOR_DELIVERY for longer
 export const LATE_PICKUP_DAYS = 3; // READY_FOR_PICKUP for longer
 export const SHOP_REMINDER_EVERY_MS = 60 * 60 * 1000; // one "order is late" reminder per order per hour
 export const ADMIN_NOTE_MAX = 500;
+
+// Shop To-Let.
+export const TOLET_PUBLISH_DAYS = 60; // a published listing expires after this (renew adds the same)
+export const TOLET_REMIND_DAYS = 5; // the owner is reminded this many days before it expires
+export const TOLET_MAX_OPEN = 3; // open listings per phone or email
+export const TOLET_MAX_PHOTOS = 6;
+export const TOLET_MAX_DOCUMENTS = 3;
+export const TOLET_EMAIL_HOURS = 24; // the confirmation link works this long
+export const TOLET_INQUIRIES_PER_DAY = 3; // per phone
+export const TOLET_MESSAGE_MAX = 1000;

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { GENDERS } from '../../lib/demographics.js';
 
 export const registerSchema = z.object({
   name: z.string().trim().min(2).max(80),
@@ -12,6 +13,8 @@ export const registerSchema = z.object({
   role: z.enum(['CUSTOMER', 'SHOP_OWNER']).default('CUSTOMER'), // ADMIN can never self-register
   // a friend's code (customers only); a wrong or self-referral code never blocks the signup
   referralCode: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{6,12}$/, 'A referral code is 6-12 letters or digits').optional(),
+  birthYear: z.number().int().nullable().optional(), // optional, private (TOO_YOUNG under 13)
+  gender: z.enum(GENDERS).nullable().optional(),
 });
 
 export const loginSchema = z.object({

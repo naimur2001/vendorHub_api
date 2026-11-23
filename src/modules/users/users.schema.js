@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { GENDERS } from '../../lib/demographics.js';
 
 const bool = z.enum(['true', 'false']).transform((v) => v === 'true');
 const phone = z.string().trim().regex(/^01\d{9}$/, 'Use a Bangladesh mobile number like 01712345678');
@@ -9,6 +10,8 @@ export const updateProfileSchema = z
     phone: phone.nullable().optional(),
     avatarUrl: z.string().url().max(500).nullable().optional(),
     smsOptOut: z.boolean().optional(), // true = no order status SMS / WhatsApp
+    birthYear: z.number().int().nullable().optional(), // private; range checked in the service (TOO_YOUNG)
+    gender: z.enum(GENDERS).nullable().optional(), // private
   })
   .refine((o) => Object.keys(o).length > 0, { message: 'Provide at least one field to update' });
 

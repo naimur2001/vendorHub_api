@@ -64,6 +64,15 @@ paths:
               type: object
               required: [name, email, password]
               properties:
+                birthYear:
+                  type: integer
+                  nullable: true
+                  description: Optional and private. From (this year - 100) to (this year - 13); younger -> 400 with error.details.code TOO_YOUNG.
+                gender:
+                  type: string
+                  nullable: true
+                  enum: [FEMALE, MALE, OTHER, PREFER_NOT_TO_SAY, null]
+                  description: Optional and private.
                 referralCode:
                   type: string
                   pattern: '^[A-Za-z0-9]{6,12}$'

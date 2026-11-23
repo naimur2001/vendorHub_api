@@ -1,0 +1,1545 @@
+# Shop To-Let: owners offer a shop space for rent; the admin is the middleman.
+# Privacy: contactName / contactPhone / contactEmail, enquiry contacts and documents are returned ONLY by
+# the owner routes (their own listing) and the admin routes. Owner and renter never see each other's
+# contact; only POST /admin/to-let/inquiries/{id}/share-contacts sends it (SMS through the messaging
+# adapter; the message log keeps the numbers masked). All text is plain text (render it as text).
+# Owner access: logged in as the submitter, or a guest with the private manage token (header
+# X-Manage-Token; it is emailed after the email confirmation, only its hash is stored).
+# Enquirer access: logged in as its author, or a guest with the follow token (?token= or header
+# X-Follow-Token; returned once by POST /to-let/{id}/inquiries).
+# Notifications (in the app, plus email or SMS): TOLET_SUBMITTED, TOLET_INFO_REQUESTED, TOLET_PUBLISHED,
+# TOLET_REJECTED, TOLET_RENTED, TOLET_MESSAGE, TOLET_INQUIRY (to admins), TOLET_EXPIRING (5 days before).
+paths:
+  /api/v1/to-let:
+    get:
+      tags: [Shop To-Let]
+      operationId: listToLet
+      summary: Published shop spaces for rent (not expired), no contact details
+      parameters:
+        - name: marketId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: minRent
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+        - name: maxRent
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+        - name: minSize
+          in: query
+          description: Square feet.
+          schema:
+            type: integer
+            minimum: 0
+        - name: maxSize
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+        - name: q
+          in: query
+          description: Text in the description, address, floor or market name (2-100 characters).
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [newest, rent_asc, rent_desc]
+            default: newest
+        - $ref: '#/components/parameters/Page'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 12
+      responses:
+        '200':
+          description: One page of cards.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ToLetCard'
+                  meta:
+                    type: object
+                    required: [pagination]
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    post:
+      tags: [Shop To-Let]
+      operationId: createToLet
+      summary: Offer a shop space (login optional)
+      description: >-
+        A guest gives contactName, contactPhone and contactEmail and gets PENDING_EMAIL plus a confirmation
+        email (24 hours). A logged-in user with a verified email (and that same contact email) goes straight
+        to SUBMITTED; missing contact fields come from the profile. At most 3 open listings per phone or
+        email (409 TOLET_LIMIT). Rate limited per IP.
+      security:
+        - {}
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ToLetInput'
+      responses:
+        '201':
+          description: The listing (the owner's own view).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/ToLetOwnerView'
+                      - type: object
+                        required: [emailConfirmationRequired]
+                        properties:
+                          emailConfirmationRequired:
+                            type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/v1/to-let/confirm-email:
+    post:
+      tags: [Shop To-Let]
+      operationId: confirmToLetEmail
+      summary: Confirm the email (PENDING_EMAIL -> SUBMITTED); a guest then gets the private manage link by email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  pattern: '^[a-f0-9]{64}$'
+      responses:
+        '200':
+          description: Confirmed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [listingId, status]
+                    properties:
+                      listingId:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        enum: [SUBMITTED]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/to-let/manage:
+    get:
+      tags: [Shop To-Let]
+      operationId: getManagedToLet
+      summary: A guest's own listing by the private manage token
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-f0-9]{64}$'
+      responses:
+        '200':
+          $ref: '#/components/responses/ToLetOwner'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/me/to-let:
+    get:
+      tags: [Shop To-Let]
+      operationId: listMyToLet
+      summary: My own listings (latest 50, any status)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The listings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ToLetOwnerView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/to-let/{slug}:
+    get:
+      tags: [Shop To-Let]
+      operationId: getToLet
+      summary: A published listing (photos, market, terms); no contact details, no documents
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The listing.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ToLetPublic'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/to-let/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+      - $ref: '#/components/parameters/ManageToken'
+    patch:
+      tags: [Shop To-Let]
+      operationId: updateToLet
+      summary: Edit my listing (a PUBLISHED or NEEDS_INFO listing goes back to SUBMITTED)
+      description: The contact email cannot change. 409 TOLET_CLOSED for RENTED, REJECTED, EXPIRED or WITHDRAWN.
+      security:
+        - {}
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ToLetUpdate'
+      responses:
+        '200':
+          $ref: '#/components/responses/ToLetOwner'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/to-let/{id}/withdraw:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+      - $ref: '#/components/parameters/ManageToken'
+    post:
+      tags: [Shop To-Let]
+      operationId: withdrawToLet
+      summary: Withdraw my open listing (its enquiries are closed)
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/ToLetStatusChange'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/to-let/{id}/photos:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+      - $ref: '#/components/parameters/ManageToken'
+    post:
+      tags: [Shop To-Let]
+      operationId: addToLetPhoto
+      summary: Add a public photo (JPG/PNG/WebP, 5 MB, at least 480 x 270, re-encoded WebP; at most 6)
+      description: On a PUBLISHED listing the photo sends it back to SUBMITTED. 409 TOLET_PHOTO_LIMIT.
+      security:
+        - {}
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: The photo.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ToLetPhoto'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          description: Larger than 5 MB.
+        '422':
+          description: The photo is too small.
+
+  /api/v1/to-let/{id}/photos/{photoId}:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+      - $ref: '#/components/parameters/ManageToken'
+      - name: photoId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [Shop To-Let]
+      operationId: removeToLetPhoto
+      summary: Remove a photo (the files too)
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Removed.
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/to-let/{id}/documents:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+      - $ref: '#/components/parameters/ManageToken'
+    post:
+      tags: [Shop To-Let]
+      operationId: addToLetDocument
+      summary: Add a private ownership proof (PDF, JPG or PNG by content, 5 MB, at most 3; admins only can open it)
+      security:
+        - {}
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: The document (metadata only).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ToLetDocumentMeta'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          description: Larger than 5 MB.
+
+  /api/v1/to-let/{id}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+      - $ref: '#/components/parameters/ManageToken'
+    get:
+      tags: [Shop To-Let]
+      operationId: getToLetOwnerMessages
+      summary: My thread with the admin (oldest first; marks the admin's messages read)
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/ToLetThread'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Shop To-Let]
+      operationId: sendToLetOwnerMessage
+      summary: Write to the admin about my listing
+      security:
+        - {}
+        - bearerAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/ToLetMessageBody'
+      responses:
+        '201':
+          $ref: '#/components/responses/ToLetMessageSent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/to-let/{id}/inquiries:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+    post:
+      tags: [Shop To-Let]
+      operationId: createToLetInquiry
+      summary: Ask about a published listing (login optional; the admins are notified)
+      description: >-
+        At most 3 enquiries per phone per day (429 INQUIRY_LIMIT) and one open enquiry per phone per
+        listing (409 INQUIRY_EXISTS). A guest gets followToken ONCE; keep it to read the answers.
+      security:
+        - {}
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, phone, message]
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 80
+                phone:
+                  type: string
+                  pattern: '^01[3-9]\d{8}$'
+                email:
+                  type: string
+                  format: email
+                message:
+                  type: string
+                  minLength: 5
+                  maxLength: 1000
+      responses:
+        '201':
+          description: The enquiry.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [inquiryId, status, createdAt]
+                    properties:
+                      inquiryId:
+                        type: string
+                        format: uuid
+                      status:
+                        $ref: '#/components/schemas/ToLetInquiryStatus'
+                      createdAt:
+                        type: string
+                        format: date-time
+                      followToken:
+                        type: string
+                        description: Guests only, shown once.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/v1/to-let/inquiries/{id}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ToLetInquiryId'
+      - name: token
+        in: query
+        description: A guest's follow token (or send it as header X-Follow-Token).
+        schema:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+    get:
+      tags: [Shop To-Let]
+      operationId: getToLetInquiryMessages
+      summary: My enquiry thread with the admin (oldest first)
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The thread.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [inquiryId, status, messages]
+                    properties:
+                      inquiryId:
+                        type: string
+                        format: uuid
+                      status:
+                        $ref: '#/components/schemas/ToLetInquiryStatus'
+                      messages:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ToLetMessage'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Shop To-Let]
+      operationId: sendToLetInquiryMessage
+      summary: Write to the admin about my enquiry (409 INQUIRY_CLOSED when closed)
+      security:
+        - {}
+        - bearerAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/ToLetMessageBody'
+      responses:
+        '201':
+          $ref: '#/components/responses/ToLetMessageSent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  # ---------- admin (all audited) ----------
+  /api/v1/admin/to-let:
+    get:
+      tags: [Admin To-Let]
+      operationId: adminListToLet
+      summary: All listings with counts per status (recently changed first)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ToLetStatus'
+        - $ref: '#/components/parameters/Page'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, slug, title, status, market, marketName, monthlyRent, sizeSqft, contactName, contactPhone, guest, photoCount, documentCount, inquiryCount, createdAt, updatedAt, publishedAt, expiresAt]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        slug:
+                          type: string
+                          nullable: true
+                        title:
+                          type: string
+                        status:
+                          $ref: '#/components/schemas/ToLetStatus'
+                        market:
+                          $ref: '#/components/schemas/ToLetMarket'
+                        marketName:
+                          type: string
+                          nullable: true
+                        monthlyRent:
+                          type: integer
+                        sizeSqft:
+                          type: integer
+                        contactName:
+                          type: string
+                        contactPhone:
+                          type: string
+                        guest:
+                          type: boolean
+                        photoCount:
+                          type: integer
+                        documentCount:
+                          type: integer
+                        inquiryCount:
+                          type: integer
+                        createdAt:
+                          type: string
+                          format: date-time
+                        updatedAt:
+                          type: string
+                          format: date-time
+                        publishedAt:
+                          type: string
+                          format: date-time
+                          nullable: true
+                        expiresAt:
+                          type: string
+                          format: date-time
+                          nullable: true
+                  meta:
+                    type: object
+                    required: [counts, pagination]
+                    properties:
+                      counts:
+                        type: object
+                        additionalProperties:
+                          type: integer
+                        description: Every status, also 0.
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/admin/to-let/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+    get:
+      tags: [Admin To-Let]
+      operationId: adminGetToLet
+      summary: Everything about a listing (contacts, documents, threads, enquiries, notes); marks messages read
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The listing.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ToLetAdminView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/to-let/{id}/documents/{docId}:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+      - name: docId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Admin To-Let]
+      operationId: adminGetToLetDocument
+      summary: Download an ownership document (PDF as attachment, never cached)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The file.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/to-let/{id}/publish:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+    post:
+      tags: [Admin To-Let]
+      operationId: adminPublishToLet
+      summary: Publish a SUBMITTED or NEEDS_INFO listing for 60 days (409 TOLET_WRONG_STATUS otherwise)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/ToLetOwner'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/admin/to-let/{id}/request-info:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+    post:
+      tags: [Admin To-Let]
+      operationId: adminRequestToLetInfo
+      summary: Ask the owner for more information (posts the message in the owner thread; NEEDS_INFO)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [message]
+              properties:
+                message:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+      responses:
+        '200':
+          $ref: '#/components/responses/ToLetOwner'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/admin/to-let/{id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+    post:
+      tags: [Admin To-Let]
+      operationId: adminRejectToLet
+      summary: Reject with a reason (its enquiries are closed)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 3
+                  maxLength: 500
+      responses:
+        '200':
+          $ref: '#/components/responses/ToLetOwner'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/admin/to-let/{id}/mark-rented:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+    post:
+      tags: [Admin To-Let]
+      operationId: adminMarkToLetRented
+      summary: Mark a PUBLISHED or EXPIRED listing as rented (its enquiries are closed)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/ToLetOwner'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/admin/to-let/{id}/renew:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+    post:
+      tags: [Admin To-Let]
+      operationId: adminRenewToLet
+      summary: Extend a PUBLISHED or EXPIRED listing by 60 days (from its end, or from now if it has ended)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/ToLetOwner'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/admin/to-let/{id}/notes:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+    post:
+      tags: [Admin To-Let]
+      operationId: adminAddToLetNote
+      summary: Add an internal note (never shown to the owner or renters)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [body]
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        '201':
+          description: The note.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ToLetNote'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/to-let/{id}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ToLetId'
+    post:
+      tags: [Admin To-Let]
+      operationId: adminReplyToLetOwner
+      summary: Reply in the owner thread (the owner is notified)
+      security:
+        - bearerAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/ToLetMessageBody'
+      responses:
+        '201':
+          $ref: '#/components/responses/ToLetMessageSent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/to-let/inquiries/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ToLetInquiryId'
+    patch:
+      tags: [Admin To-Let]
+      operationId: adminSetToLetInquiryStatus
+      summary: Set an enquiry's status
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/ToLetInquiryStatus'
+      responses:
+        '200':
+          description: Changed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [id, status]
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      status:
+                        $ref: '#/components/schemas/ToLetInquiryStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/to-let/inquiries/{id}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ToLetInquiryId'
+    post:
+      tags: [Admin To-Let]
+      operationId: adminReplyToLetInquiry
+      summary: Reply to an enquirer (the first answer moves NEW to IN_TALKS)
+      security:
+        - bearerAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/ToLetMessageBody'
+      responses:
+        '201':
+          $ref: '#/components/responses/ToLetMessageSent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/admin/to-let/inquiries/{id}/share-contacts:
+    parameters:
+      - $ref: '#/components/parameters/ToLetInquiryId'
+    post:
+      tags: [Admin To-Let]
+      operationId: adminShareToLetContacts
+      summary: Send each side the other's name and phone by SMS (only on this click; CONNECTED; audited)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sent.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [id, status, contactsSharedAt, sentTo]
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      status:
+                        $ref: '#/components/schemas/ToLetInquiryStatus'
+                      contactsSharedAt:
+                        type: string
+                        format: date-time
+                      sentTo:
+                        type: array
+                        items:
+                          type: string
+                          enum: [RENTER, OWNER]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+components:
+  parameters:
+    ToLetId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ToLetInquiryId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ManageToken:
+      name: X-Manage-Token
+      in: header
+      required: false
+      description: A guest owner's private manage token (logged-in owners do not need it).
+      schema:
+        type: string
+        pattern: '^[a-f0-9]{64}$'
+  requestBodies:
+    ToLetMessageBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [body]
+            properties:
+              body:
+                type: string
+                minLength: 1
+                maxLength: 1000
+                description: Plain text.
+  responses:
+    ToLetOwner:
+      description: The listing (owner view).
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                $ref: '#/components/schemas/ToLetOwnerView'
+    ToLetStatusChange:
+      description: The new status.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                type: object
+                required: [id, status]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: '#/components/schemas/ToLetStatus'
+    ToLetThread:
+      description: The messages.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                type: object
+                required: [messages]
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ToLetMessage'
+    ToLetMessageSent:
+      description: The message.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                $ref: '#/components/schemas/ToLetMessage'
+  schemas:
+    ToLetStatus:
+      type: string
+      enum: [PENDING_EMAIL, SUBMITTED, NEEDS_INFO, PUBLISHED, RENTED, REJECTED, EXPIRED, WITHDRAWN]
+    ToLetInquiryStatus:
+      type: string
+      enum: [NEW, IN_TALKS, CONNECTED, CLOSED]
+    ToLetMarket:
+      type: object
+      nullable: true
+      required: [id, name, slug]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+    ToLetPhoto:
+      type: object
+      required: [id, url, thumbUrl, width, height]
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+        thumbUrl:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
+    ToLetInput:
+      type: object
+      additionalProperties: false
+      required: [addressLine, sizeSqft, monthlyRent, advance, availableFrom, description]
+      description: marketId or marketName is required.
+      properties:
+        marketId:
+          type: string
+          format: uuid
+          nullable: true
+        marketName:
+          type: string
+          nullable: true
+          minLength: 2
+          maxLength: 120
+        levelFloor:
+          type: string
+          nullable: true
+          maxLength: 40
+        shopNumber:
+          type: string
+          nullable: true
+          maxLength: 40
+        addressLine:
+          type: string
+          minLength: 5
+          maxLength: 300
+        sizeSqft:
+          type: integer
+          minimum: 10
+        monthlyRent:
+          type: integer
+          minimum: 1
+          description: Whole taka.
+        advance:
+          type: integer
+          minimum: 0
+          description: Whole taka.
+        availableFrom:
+          type: string
+          format: date
+        suitableFor:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            format: uuid
+          description: Category ids.
+        description:
+          type: string
+          minLength: 10
+          maxLength: 1500
+          description: Plain text.
+        contactName:
+          type: string
+          minLength: 2
+          maxLength: 80
+          description: Private. Required for guests.
+        contactPhone:
+          type: string
+          pattern: '^01[3-9]\d{8}$'
+          description: Private. Required for guests (and for users without a phone).
+        contactEmail:
+          type: string
+          format: email
+          description: Private. Required for guests.
+    ToLetUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        marketId:
+          type: string
+          format: uuid
+          nullable: true
+        marketName:
+          type: string
+          nullable: true
+        levelFloor:
+          type: string
+          nullable: true
+        shopNumber:
+          type: string
+          nullable: true
+        addressLine:
+          type: string
+        sizeSqft:
+          type: integer
+        monthlyRent:
+          type: integer
+        advance:
+          type: integer
+        availableFrom:
+          type: string
+          format: date
+        suitableFor:
+          type: array
+          items:
+            type: string
+            format: uuid
+        description:
+          type: string
+        contactName:
+          type: string
+        contactPhone:
+          type: string
+          pattern: '^01[3-9]\d{8}$'
+    ToLetCard:
+      type: object
+      required: [id, slug, title, market, marketName, levelFloor, addressLine, sizeSqft, monthlyRent, advance, availableFrom, cover, photoCount, publishedAt, expiresAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+          nullable: true
+        title:
+          type: string
+        market:
+          $ref: '#/components/schemas/ToLetMarket'
+        marketName:
+          type: string
+          nullable: true
+        levelFloor:
+          type: string
+          nullable: true
+        addressLine:
+          type: string
+        sizeSqft:
+          type: integer
+        monthlyRent:
+          type: integer
+        advance:
+          type: integer
+        availableFrom:
+          type: string
+          format: date
+        cover:
+          allOf:
+            - $ref: '#/components/schemas/ToLetPhoto'
+          nullable: true
+        photoCount:
+          type: integer
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+    ToLetPublic:
+      allOf:
+        - $ref: '#/components/schemas/ToLetCard'
+        - type: object
+          required: [shopNumber, suitableFor, description, photos]
+          properties:
+            shopNumber:
+              type: string
+              nullable: true
+            suitableFor:
+              type: array
+              items:
+                type: object
+                required: [id, name, slug]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  name:
+                    type: string
+                  slug:
+                    type: string
+            description:
+              type: string
+            photos:
+              type: array
+              items:
+                $ref: '#/components/schemas/ToLetPhoto'
+    ToLetDocumentMeta:
+      type: object
+      required: [id, mimeType, size, originalName, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        mimeType:
+          type: string
+          enum: [application/pdf, image/jpeg, image/png]
+        size:
+          type: integer
+        originalName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        url:
+          type: string
+          description: Admin view only (GET /admin/to-let/{id}/documents/{docId}).
+    ToLetOwnerView:
+      allOf:
+        - $ref: '#/components/schemas/ToLetPublic'
+        - type: object
+          required: [marketId, status, rejectReason, contactName, contactPhone, contactEmail, documents, createdAt, updatedAt]
+          properties:
+            marketId:
+              type: string
+              format: uuid
+              nullable: true
+            status:
+              $ref: '#/components/schemas/ToLetStatus'
+            rejectReason:
+              type: string
+              nullable: true
+            contactName:
+              type: string
+            contactPhone:
+              type: string
+            contactEmail:
+              type: string
+            documents:
+              type: array
+              items:
+                $ref: '#/components/schemas/ToLetDocumentMeta'
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+    ToLetMessage:
+      type: object
+      required: [id, senderRole, mine, body, createdAt, readAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        senderRole:
+          type: string
+          enum: [OWNER, RENTER, ADMIN]
+        mine:
+          type: boolean
+        body:
+          type: string
+          description: Plain text.
+        createdAt:
+          type: string
+          format: date-time
+        readAt:
+          type: string
+          format: date-time
+          nullable: true
+    ToLetNote:
+      type: object
+      required: [id, body, author, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        body:
+          type: string
+        author:
+          type: object
+          required: [id, name]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+        createdAt:
+          type: string
+          format: date-time
+    ToLetAdminView:
+      allOf:
+        - $ref: '#/components/schemas/ToLetOwnerView'
+        - type: object
+          required: [submitter, guest, ownerThread, inquiries, notes]
+          properties:
+            submitter:
+              type: object
+              nullable: true
+              required: [id, name, email, phone]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                email:
+                  type: string
+                  nullable: true
+                phone:
+                  type: string
+                  nullable: true
+            guest:
+              type: boolean
+            ownerThread:
+              type: object
+              required: [messages]
+              properties:
+                messages:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ToLetMessage'
+            inquiries:
+              type: array
+              items:
+                type: object
+                required: [id, name, phone, email, message, status, guest, contactsSharedAt, createdAt, updatedAt, messages]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  name:
+                    type: string
+                  phone:
+                    type: string
+                  email:
+                    type: string
+                    nullable: true
+                  message:
+                    type: string
+                  status:
+                    $ref: '#/components/schemas/ToLetInquiryStatus'
+                  guest:
+                    type: boolean
+                  contactsSharedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  createdAt:
+                    type: string
+                    format: date-time
+                  updatedAt:
+                    type: string
+                    format: date-time
+                  messages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ToLetMessage'
+            notes:
+              type: array
+              items:
+                $ref: '#/components/schemas/ToLetNote'

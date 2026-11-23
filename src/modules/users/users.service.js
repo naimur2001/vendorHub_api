@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
+import { checkBirthYear } from '../../lib/demographics.js';
 
 const MAX_ADDRESSES = 10;
 
@@ -16,6 +17,7 @@ const publicUser = (u) => ({
 // ---------- my profile ----------
 
 export async function updateProfile(userId, input) {
+  checkBirthYear(input.birthYear);
   if (input.phone) {
     const taken = await prisma.user.findFirst({
       where: { phone: input.phone, NOT: { id: userId } },
@@ -24,7 +26,8 @@ export async function updateProfile(userId, input) {
     if (taken) throw new AppError(409, 'This phone number is already used by another account');
   }
   const user = await prisma.user.update({ where: { id: userId }, data: input });
-  return { ...publicUser(user), smsOptOut: user.smsOptOut }; // the caller's own setting
+  // the caller's own settings and private fields (never in publicUser, which admins and others see)
+  return { ...publicUser(user), smsOptOut: user.smsOptOut, birthYear: user.birthYear, gender: user.gender };
 }
 
 // ---------- my addresses ----------

@@ -38,6 +38,7 @@ import bannerRoutes from './modules/banners/banners.routes.js';
 import wishlistRoutes from './modules/wishlist/wishlist.routes.js';
 import orderChatRoutes from './modules/orderChat/orderChat.routes.js';
 import adminOrdersRoutes from './modules/adminOrders/adminOrders.routes.js';
+import toLetRoutes from './modules/toLet/toLet.routes.js';
 import shopToolsRoutes from './modules/shopTools/shopTools.routes.js';
 import promotionRoutes from './modules/promotions/promotions.routes.js';
 import moderationRoutes from './modules/moderation/moderation.routes.js';
@@ -78,8 +79,8 @@ app.use(
     logger,
     // one short line per request instead of the full request/response objects
     serializers: {
-      // a visitor's location (?lat=&lng=) is never written to the logs
-      req: (req) => ({ method: req.method, url: req.url.replace(/([?&](?:lat|lng)=)[^&#]*/gi, '$1-') }),
+      // a visitor's location (?lat=&lng=) and private links (?token=) are never written to the logs
+      req: (req) => ({ method: req.method, url: req.url.replace(/([?&](?:lat|lng|token)=)[^&#]*/gi, '$1-') }),
       res: (res) => ({ statusCode: res.statusCode }),
     },
     customLogLevel: (req, res, err) => {
@@ -130,6 +131,7 @@ app.use('/api/v1', adminCatalogRoutes);
 app.use('/api/v1', bannerRoutes);
 app.use('/api/v1', orderChatRoutes);
 app.use('/api/v1', adminOrdersRoutes);
+app.use('/api/v1', toLetRoutes);
 app.use('/api/v1', shopToolsRoutes);
 app.use('/api/v1', promotionRoutes);
 app.use('/api/v1', moderationRoutes);

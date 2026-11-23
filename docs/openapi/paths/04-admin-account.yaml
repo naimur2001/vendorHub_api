@@ -49,8 +49,11 @@ paths:
       operationId: adminDashboard
       summary: Users, shops, orders and sales, queues, catalog counts, top shops and recent activity
       description: >-
-        Also ordersLate (orders late by the admin order monitor's rules, see GET /admin/orders?late=any)
-        and ordersToday (orders placed since midnight, Asia/Dhaka).
+        Also ordersLate (orders late by the admin order monitor's rules, see GET /admin/orders?late=any),
+        ordersToday (orders placed since midnight, Asia/Dhaka) and demographics: counts of active accounts
+        only, never a list of users. demographics.ageGroups has under18, 18-24, 25-34, 35-44, 45-54,
+        55plus and unknown; demographics.gender has FEMALE, MALE, OTHER, PREFER_NOT_TO_SAY and unknown.
+        Every group of fewer than 5 people is the string "<5" instead of a number.
       security:
         - bearerAuth: []
       responses:
@@ -768,7 +771,7 @@ paths:
     patch:
       tags: [Profile]
       operationId: updateMyProfile
-      summary: Edit my name, phone or avatar
+      summary: Edit my name, phone, avatar, SMS setting, birth year or gender
       security:
         - bearerAuth: []
       requestBody:
@@ -795,6 +798,15 @@ paths:
                 smsOptOut:
                   type: boolean
                   description: true = no order status SMS / WhatsApp.
+                birthYear:
+                  type: integer
+                  nullable: true
+                  description: Optional and private. From (this year - 100) to (this year - 13); younger -> 400 with error.details.code TOO_YOUNG.
+                gender:
+                  type: string
+                  nullable: true
+                  enum: [FEMALE, MALE, OTHER, PREFER_NOT_TO_SAY, null]
+                  description: Optional and private.
       responses:
         '200':
           description: My updated profile.

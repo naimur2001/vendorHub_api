@@ -5,6 +5,7 @@ import { prisma } from './lib/prisma.js';
 import { expireStaleBargains } from './modules/bargains/bargains.service.js';
 import { runAccountDeletionJobs } from './modules/users/accountDeletion.job.js';
 import { runReservationSweep } from './jobs/reservations.js';
+import { runToLetSweep } from './modules/toLet/toLet.job.js';
 const server = app.listen(env.PORT, () => {
   logger.info(`API running on http://localhost:${env.PORT}`);
 });
@@ -25,6 +26,11 @@ const runDeletions = () =>
   runAccountDeletionJobs()
     .then((r) => (r.reminders || r.anonymised) && logger.info(r, 'account deletion jobs'))
     .catch((err) => logger.error(err, 'account deletion jobs failed'));
+// Shop To-Let: expiry reminders and expiry (daily is enough; every 6 hours keeps it close to the date).
+const toLetJob = setInterval(runToLetSweep, 6 * 60 * 60 * 1000);
+toLetJob.unref();
+setTimeout(runToLetSweep, 90 * 1000).unref();
+
 const deletionJob = setInterval(runDeletions, 60 * 60 * 1000);
 deletionJob.unref();
 setTimeout(runDeletions, 60 * 1000).unref(); // also shortly after start
@@ -35,6 +41,7 @@ function shutdown(signal) {
   clearInterval(sweeper);
   clearInterval(reservationJob);
   clearInterval(deletionJob);
+  clearInterval(toLetJob);
   server.close(async () => {
     await prisma.$disconnect();
     process.exit(0);

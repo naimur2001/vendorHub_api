@@ -57,3 +57,17 @@ export function receiveBannerMedia(req, res, next) {
     return next(err);
   });
 }
+// Shop To-Let ownership documents: exactly one file in "file", at most 5 MB (PDF, JPG or PNG; checked by content).
+const documentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 0, parts: 1 },
+}).single('file');
+
+export function receiveDocument(req, res, next) {
+  documentUpload(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') return next(new AppError(413, 'The file is larger than 5 MB'));
+    if (err.name === 'MulterError') return next(new AppError(400, 'Send exactly one file in the multipart field "file"'));
+    return next(err);
+  });
+}

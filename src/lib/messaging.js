@@ -29,7 +29,8 @@ const providers = {
   },
 };
 
-async function send({ userId, phone, template, body, subOrderId }) {
+// logBody: what the log keeps when the message itself carries private data (e.g. a shared phone number)
+async function send({ userId, phone, template, body, subOrderId, logBody }) {
   const mode = env.MESSAGING_MODE;
   const provider = providers[mode];
   let status = 'SENT';
@@ -42,7 +43,7 @@ async function send({ userId, phone, template, body, subOrderId }) {
     logger.warn({ provider: mode, template }, 'message not sent'); // no phone number in the log
   }
   await prisma.messageLog.create({
-    data: { userId, channel: provider.channel, provider: mode, toMasked: maskPhone(phone), template, body, status, error, subOrderId },
+    data: { userId, channel: provider.channel, provider: mode, toMasked: maskPhone(phone), template, body: logBody ?? body, status, error, subOrderId },
   });
 }
 
@@ -69,5 +70,18 @@ export async function sendOrderStatusMessage(order, status) {
     await send({ userId: user.id, phone: user.phone, template, body, subOrderId: order.id });
   } catch (err) {
     logger.error({ err: err.message }, 'could not send the order status message');
+  }
+}
+
+/**
+ * Any other plain-text SMS / WhatsApp (e.g. Shop To-Let), through the same adapter and MessageLog.
+ * Best effort: never throws. userId may be null (a guest).
+ */
+export async function sendPlainMessage({ userId = null, phone, template, body, logBody }) {
+  if (!phone) return;
+  try {
+    await send({ userId, phone, template, body, logBody, subOrderId: null });
+  } catch (err) {
+    logger.error({ err: err.message, template }, 'could not send a message'); // no phone number
   }
 }

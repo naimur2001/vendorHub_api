@@ -8,6 +8,7 @@ import { env } from '../../config/env.js';
 import { sendMail } from '../../lib/mailer.js';
 import { logger } from '../../lib/logger.js';
 import { recordDevice, applyReferralAtSignup } from '../referrals/referrals.service.js';
+import { checkBirthYear } from '../../lib/demographics.js';
 
 // We store only a hash of the refresh token, so a DB leak does not leak usable tokens.
 const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
@@ -22,6 +23,9 @@ const publicUser = (u) => ({
   emailVerified: Boolean(u.emailVerifiedAt),
   deletionScheduledFor: u.deletionScheduledFor ? u.deletionScheduledFor.toISOString() : null,
   smsOptOut: Boolean(u.smsOptOut), // order status SMS / WhatsApp switched off
+  // private: this object only ever goes to the user themselves (session, /auth/me)
+  birthYear: u.birthYear ?? null,
+  gender: u.gender ?? null,
 });
 
 async function issueTokens(user) {
@@ -37,7 +41,8 @@ async function issueTokens(user) {
   return { accessToken, refreshToken };
 }
 
-export async function register({ name, email, phone, password, role, referralCode }, { deviceHash } = {}) {
+export async function register({ name, email, phone, password, role, referralCode, birthYear, gender }, { deviceHash } = {}) {
+  checkBirthYear(birthYear);
   const existing = await prisma.user.findFirst({
     where: { OR: [{ email }, ...(phone ? [{ phone }] : [])] },
   });
@@ -47,7 +52,7 @@ export async function register({ name, email, phone, password, role, referralCod
   // const user = await prisma.user.create({ data: { name, email, phone, passwordHash, role } });
   const verified = isAutoVerified(email); // development/test domains only (never in production)
   const user = await prisma.user.create({
-    data: { name, email, phone, passwordHash, role, emailVerifiedAt: verified ? new Date() : null },
+    data: { name, email, phone, passwordHash, role, birthYear: birthYear ?? null, gender: gender ?? null, emailVerifiedAt: verified ? new Date() : null },
   });
   if (!verified && user.email) await sendVerificationLink(user); // never throws: a mail problem must not stop registration
   // referrals: the device first (the self-referral check compares devices), then the friend's code

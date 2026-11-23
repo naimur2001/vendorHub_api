@@ -26,6 +26,8 @@ export const IMAGE_PROFILES = Object.freeze({
   MARKET: Object.freeze({ width: 1600, thumbWidth: 600, minWidth: 480, minHeight: 270 }),
   GENERAL: Object.freeze({ width: 2048, thumbWidth: 600, minWidth: 1, minHeight: 1 }),
   PRODUCT: Object.freeze({ width: 1600, thumbWidth: 600, minWidth: 480, minHeight: 270 }),
+  // Shop To-Let: photos of a shop space for rent
+  TOLET: Object.freeze({ width: 1600, thumbWidth: 600, minWidth: 480, minHeight: 270 }),
   // logo: square, center-cropped to exactly 512 x 512 (+128 thumbnail)
   LOGO: Object.freeze({ width: 512, height: 512, thumbWidth: 128, thumbHeight: 128, minWidth: 200, minHeight: 200, crop: true, enlarge: true }),
   // banner: exactly 1600 wide (+800 thumbnail)

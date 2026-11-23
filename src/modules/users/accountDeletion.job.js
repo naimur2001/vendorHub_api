@@ -50,6 +50,8 @@ async function anonymiseUser(userId) {
         email: `deleted-${userId}@deleted.invalid`,
         phone: null,
         avatarUrl: null,
+        birthYear: null,
+        gender: null,
         passwordHash: unusableHash,
         isActive: false,
         emailVerifiedAt: null,

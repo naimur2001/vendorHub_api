@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { assertShopAccess } from '../../lib/shopAccess.js';
 import { countLate } from '../adminOrders/adminOrders.service.js';
+import { demographics } from '../../lib/demographics.js';
 
 const ORDER_STATUSES = ['PLACED', 'CONFIRMED', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY', 'COMPLETED', 'CANCELLED'];
 const LEVELS = ['UNVERIFIED', 'DOCUMENTS_VERIFIED', 'BUSINESS_VERIFIED', 'PHYSICAL_SHOP_VERIFIED', 'TRUSTED_VENDOR'];
@@ -227,7 +228,7 @@ export async function adminDashboard() {
   const [
     userRoles, blockedUsers, newUsers, shopLevels, activeShops, newShops, orderStatuses, sales,
     pendingReview, autoFlagged, correctionRequested, approvedThisWeek, liveBargains,
-    products, activeListings, reviews, topShopRows, activity, ordersLate, ordersToday,
+    products, activeListings, reviews, topShopRows, activity, ordersLate, birthYears, genders, ordersToday,
   ] = await Promise.all([
     prisma.user.groupBy({ by: ['role'], _count: { _all: true } }),
     prisma.user.count({ where: { isActive: false } }),
@@ -259,6 +260,9 @@ export async function adminDashboard() {
       include: { actor: { select: { name: true } } },
     }),
     countLate(), // the admin order monitor's late rules
+    // demographics: counts only (active accounts), small groups hidden
+    prisma.user.groupBy({ by: ['birthYear'], where: { isActive: true }, _count: { _all: true } }),
+    prisma.user.groupBy({ by: ['gender'], where: { isActive: true }, _count: { _all: true } }),
     // since midnight in Dhaka
     prisma.subOrder.count({
       where: { createdAt: { gte: new Date(`${new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(new Date())}T00:00:00+06:00`) } },
@@ -291,6 +295,7 @@ export async function adminDashboard() {
     orders: { total: sumCounts(orderStatuses), byStatus: countsBy(orderStatuses, ORDER_STATUSES, 'status'), sales },
     ordersLate,
     ordersToday,
+    demographics: demographics(birthYears, genders),
     verification: { pendingReview, autoFlagged, waitingForOwner: correctionRequested, approvedThisWeek },
     bargains: { live: liveBargains },
     catalog: { products, activeListings, reviews },

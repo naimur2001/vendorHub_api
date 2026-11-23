@@ -134,6 +134,9 @@ model User {
   follows             ShopFollow[]
   auditLogs           AuditLog[]
   adminOrderNotes     AdminOrderNote[]
+  toLetListings       ToLetListing[]
+  toLetInquiries      ToLetInquiry[]
+  toLetNotes          ToLetNote[]
   passwordResetTokens PasswordResetToken[]
   notifications       Notification[]
   fileUploads         FileUpload[]
@@ -142,6 +145,8 @@ model User {
   devices             UserDevice[]
   creditEntries       CreditLedger[]
   smsOptOut           Boolean        @default(false) // true = no order status SMS / WhatsApp
+  birthYear           Int? // optional, private: only the user sees it (admins get anonymous counts)
+  gender              Gender? // optional, private, like birthYear
   returnRequests      ReturnRequest[]
   returnMessages      ReturnMessage[]
 }
@@ -185,6 +190,7 @@ model Market {
   latitude  Float?
   longitude Float?
   shops     Shop[]
+  toLets    ToLetListing[]
   imageId   String? @unique
   image     Image?  @relation(fields: [imageId], references: [id], onDelete: SetNull)
 
@@ -1055,6 +1061,7 @@ model Image {
   homeBanner       Banner? @relation("HomeBanner")
   homeBannerMobile Banner? @relation("HomeBannerMobile")
   reviewPhoto      ReviewPhoto?
+  toLetPhoto       ToLetPhoto?
   @@index([productId, sortOrder])
 }
 
@@ -1103,4 +1110,170 @@ model AdminOrderNote {
   author     User     @relation(fields: [authorId], references: [id])
 
   @@index([subOrderId, createdAt])
+}
+
+enum Gender {
+  FEMALE
+  MALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+// ---------- Shop To-Let: owners offer a shop space for rent; the admin is the middleman ----------
+// The owner's and the renter's contact details are never public and never shown to each other.
+enum ToLetStatus {
+  PENDING_EMAIL // a guest (or an unverified user) has not confirmed the email yet
+  SUBMITTED // waiting for an admin
+  NEEDS_INFO // the admin asked the owner for more information
+  PUBLISHED
+  RENTED
+  REJECTED
+  EXPIRED
+  WITHDRAWN
+}
+
+enum ToLetThreadKind {
+  OWNER // the owner <-> admin (one per listing)
+  INQUIRY // one enquirer <-> admin (one per enquiry)
+}
+
+enum ToLetSenderRole {
+  OWNER
+  RENTER
+  ADMIN
+}
+
+enum ToLetInquiryStatus {
+  NEW
+  IN_TALKS
+  CONNECTED
+  CLOSED
+}
+
+model ToLetListing {
+  id                  String      @id @default(uuid())
+  slug                String?     @unique // set when it is first published
+  submitterId         String? // null = a guest
+  contactName         String // private
+  contactPhone        String // private, BD mobile
+  contactEmail        String // private
+  marketId            String?
+  marketName          String? // when the market is not in the list
+  levelFloor          String?
+  shopNumber          String?
+  addressLine         String
+  sizeSqft            Int
+  monthlyRent         Int // whole taka
+  advance             Int // whole taka
+  availableFrom       DateTime
+  suitableFor         String[] // category ids
+  description         String // plain text, max 1500
+  status              ToLetStatus @default(PENDING_EMAIL)
+  rejectReason        String?
+  publishedAt         DateTime?
+  expiresAt           DateTime? // publish + 60 days (renew adds 60 more)
+  expiryRemindedAt    DateTime?
+  emailTokenHash      String?     @unique // SHA-256 of the confirmation link token
+  emailTokenExpiresAt DateTime?
+  manageTokenHash     String?     @unique // SHA-256 of a guest's private manage token
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  submitter           User?       @relation(fields: [submitterId], references: [id], onDelete: SetNull)
+  market              Market?     @relation(fields: [marketId], references: [id], onDelete: SetNull)
+  photos              ToLetPhoto[]
+  documents           ToLetDocument[]
+  threads             ToLetThread[]
+  inquiries           ToLetInquiry[]
+  notes               ToLetNote[]
+
+  @@index([status, publishedAt])
+  @@index([status, expiresAt])
+  @@index([contactPhone])
+  @@index([contactEmail])
+  @@index([submitterId])
+}
+
+model ToLetPhoto {
+  id        String       @id @default(uuid())
+  listingId String
+  imageId   String       @unique
+  sortOrder Int          @default(0)
+  createdAt DateTime     @default(now())
+  listing   ToLetListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  image     Image        @relation(fields: [imageId], references: [id], onDelete: Cascade)
+
+  @@index([listingId, sortOrder])
+}
+
+// Ownership proof (PDF or image), kept in uploads/private, served to admins only.
+model ToLetDocument {
+  id           String       @id @default(uuid())
+  listingId    String
+  storedName   String       @unique
+  mimeType     String
+  size         Int
+  originalName String
+  createdAt    DateTime     @default(now())
+  listing      ToLetListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+}
+
+model ToLetThread {
+  id        String          @id @default(uuid())
+  listingId String
+  kind      ToLetThreadKind
+  inquiryId String?         @unique
+  createdAt DateTime        @default(now())
+  listing   ToLetListing    @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  inquiry   ToLetInquiry?   @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  messages  ToLetMessage[]
+
+  @@index([listingId, kind])
+}
+
+model ToLetMessage {
+  id           String          @id @default(uuid())
+  threadId     String
+  senderRole   ToLetSenderRole
+  senderUserId String?
+  body         String // plain text, 1-1000
+  createdAt    DateTime        @default(now())
+  readAt       DateTime? // set when the other side reads it
+  thread       ToLetThread     @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+}
+
+model ToLetInquiry {
+  id              String             @id @default(uuid())
+  listingId       String
+  userId          String?
+  name            String
+  phone           String // private
+  email           String? // private
+  message         String
+  status          ToLetInquiryStatus @default(NEW)
+  followTokenHash String?            @unique // a guest's private token (SHA-256)
+  contactsSharedAt DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  listing         ToLetListing       @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  user            User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  thread          ToLetThread?
+
+  @@index([listingId, phone, status])
+  @@index([phone, createdAt])
+}
+
+model ToLetNote {
+  id        String       @id @default(uuid())
+  listingId String
+  authorId  String
+  body      String
+  createdAt DateTime     @default(now())
+  listing   ToLetListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  author    User         @relation(fields: [authorId], references: [id])
+
+  @@index([listingId, createdAt])
 }
