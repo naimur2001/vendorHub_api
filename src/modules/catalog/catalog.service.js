@@ -42,16 +42,59 @@ const RANK_TO_AVAILABILITY = { 4: 'IN_STOCK', 3: 'AVAILABLE', 2: 'LIMITED', 1: '
 
 const ORDER_BY = {
   newest: Prisma.sql`fp."createdAt" DESC, fp.id ASC`,
+  oldest: Prisma.sql`fp."createdAt" ASC, fp.id ASC`,
   price_asc: Prisma.sql`m."lowestPrice" ASC, fp.id ASC`,
   price_desc: Prisma.sql`m."lowestPrice" DESC, fp.id ASC`,
+  // m.score is 0 for the other sorts (see salesStats); ties: newest first, then id
+  trending: Prisma.sql`m.score DESC, fp."createdAt" DESC, fp.id ASC`,
+  popular: Prisma.sql`m.score DESC, fp."createdAt" DESC, fp.id ASC`,
 };
+
+export const TRENDING_DAYS = 7;
+
+// Only trending and popular read the sales tables. "Units sold" = order items of orders that are
+// not CANCELLED (the same rule as the shop analytics). Only the listings of fp are read.
+// Returns the extra CTEs (written between fp and m), the joins inside m and m's score expression.
+function salesStats(sort, now) {
+  const none = { ctes: Prisma.empty, joins: Prisma.empty, score: Prisma.sql`0` };
+  if (sort !== 'trending' && sort !== 'popular') return none;
+
+  const since = new Date(now.getTime() - TRENDING_DAYS * 24 * 60 * 60 * 1000);
+  const ofFp = Prisma.sql`IN (SELECT fl.id FROM "ShopListing" fl JOIN fp ON fp.id = fl."productId")`;
+  const salesSince = sort === 'trending' ? Prisma.sql`AND o."createdAt" >= ${since}` : Prisma.empty;
+  const sales = Prisma.sql`,
+    sales AS (
+      SELECT i."listingId", SUM(i.quantity)::int AS units
+      FROM "OrderItem" i JOIN "SubOrder" o ON o.id = i."subOrderId"
+      WHERE o.status <> 'CANCELLED' ${salesSince} AND i."listingId" ${ofFp}
+      GROUP BY i."listingId"
+    )`;
+  if (sort === 'popular') {
+    return {
+      ctes: sales,
+      joins: Prisma.sql`LEFT JOIN sales ON sales."listingId" = l.id`,
+      score: Prisma.sql`COALESCE(SUM(sales.units), 0)::int`,
+    };
+  }
+  return {
+    ctes: Prisma.sql`${sales},
+    carts AS (
+      SELECT c."listingId", COUNT(*)::int AS n
+      FROM "AddToCartEvent" c
+      WHERE c."createdAt" >= ${since} AND c."listingId" ${ofFp}
+      GROUP BY c."listingId"
+    )`,
+    joins: Prisma.sql`LEFT JOIN sales ON sales."listingId" = l.id LEFT JOIN carts ON carts."listingId" = l.id`,
+    score: Prisma.sql`(COALESCE(SUM(sales.units), 0) + COALESCE(SUM(carts.n), 0))::int`,
+  };
+}
 
 
 // "%" and "_" (and the escape character itself) in a search text are normal characters, not wildcards.
 const likePattern = (text) => `%${text.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
 
 export async function listProducts(query) {
-  const { q, category, brand, minPrice, maxPrice, shopId, marketId, availableOnly, sort, page, limit } = query;
+  const { q, category, brand, minPrice, maxPrice, shopId, marketId, availableOnly, bargain, sort, page, limit } = query;
 
   // Product filters, written on Product columns only, so PostgreSQL can use their indexes
   // (trigram index on the title, existing indexes on brandId and categoryId).
@@ -82,6 +125,10 @@ export async function listProducts(query) {
   if (minPrice !== undefined) listingConds.push(Prisma.sql`(${eff}) >= ${minPrice}`);
   if (maxPrice !== undefined) listingConds.push(Prisma.sql`(${eff}) <= ${maxPrice}`);
   if (availableOnly) listingConds.push(Prisma.sql`l.availability <> 'OUT_OF_STOCK'`);
+  if (bargain) listingConds.push(Prisma.sql`l."bargainEnabled" = true`);
+
+  // with trending / popular, the score counts the MATCHING listings only (e.g. one shop's sales with shopId)
+  const stats = salesStats(sort, new Date());
 
   // fp: the products that pass the product filters.
   // m:  per product, the statistics of its MATCHING listings; only the listings of fp are read,
@@ -91,7 +138,7 @@ export async function listProducts(query) {
       SELECT p.id, p."createdAt"
       FROM "Product" p
       WHERE ${Prisma.join(productConds, ' AND ')}
-    ),
+    )${stats.ctes},
     m AS (
       SELECT l."productId",
              MIN(${eff}) AS "lowestPrice",
@@ -105,11 +152,13 @@ export async function listProducts(query) {
              (ARRAY_AGG(l.id ORDER BY (l.availability = 'IN_STOCK') DESC, ${eff} ASC, l.id ASC))[1] AS "bestListingId",
              -- the lowest active flash deal among the matching listings (the card's deal badge)
              MIN(dl."dealPrice") FILTER (WHERE dl."dealPrice" < l.price) AS "dealPrice",
-             (ARRAY_AGG(dl."endsAt" ORDER BY dl."dealPrice") FILTER (WHERE dl."dealPrice" < l.price))[1] AS "dealEndsAt"
+             (ARRAY_AGG(dl."endsAt" ORDER BY dl."dealPrice") FILTER (WHERE dl."dealPrice" < l.price))[1] AS "dealEndsAt",
+             ${stats.score} AS score
       FROM "ShopListing" l
       JOIN fp ON fp.id = l."productId"
       JOIN "Shop" s ON s.id = l."shopId"
       ${dealJoin('l')}
+      ${stats.joins}
       WHERE ${Prisma.join(listingConds, ' AND ')}
       GROUP BY l."productId"
     )`;

@@ -10,7 +10,10 @@ export const listProductsQuery = z.object({
   shopId: z.string().uuid().optional(),
   marketId: z.string().uuid().optional(),
   availableOnly: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
-  sort: z.enum(['newest', 'price_asc', 'price_desc']).default('newest'),
+  // true = only listings with bargaining on count (false = no filter, like leaving it out)
+  bargain: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+  // trending = units sold + add-to-carts in the last 7 days; popular = units sold all time
+  sort: z.enum(['newest', 'oldest', 'price_asc', 'price_desc', 'trending', 'popular']).default('newest'),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(12),
 });

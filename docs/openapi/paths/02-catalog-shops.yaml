@@ -86,11 +86,24 @@ paths:
           schema:
             type: string
             enum: ['true', 'false']
-        - name: sort
+        - name: bargain
           in: query
+          description: >-
+            true = only products with at least one matching listing that has bargaining on (the card's
+            prices then come from those listings). false = no filter, the same as leaving it out.
           schema:
             type: string
-            enum: [newest, price_asc, price_desc]
+            enum: ['true', 'false']
+        - name: sort
+          in: query
+          description: >-
+            newest / oldest = when the product was added. trending = units sold (orders not cancelled)
+            plus add-to-carts in the last 7 days. popular = units sold of all time (orders not cancelled).
+            trending and popular count the matching listings only (with shopId, that shop's sales) and
+            break ties by newest. Every sort ends with the product id, so paging is stable.
+          schema:
+            type: string
+            enum: [newest, oldest, price_asc, price_desc, trending, popular]
             default: newest
         - $ref: '#/components/parameters/Page'
         - name: limit
