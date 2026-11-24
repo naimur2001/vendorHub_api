@@ -45,3 +45,7 @@ export const TOLET_MAX_DOCUMENTS = 3;
 export const TOLET_EMAIL_HOURS = 24; // the confirmation link works this long
 export const TOLET_INQUIRIES_PER_DAY = 3; // per phone
 export const TOLET_MESSAGE_MAX = 1000;
+
+// Product deletion requests.
+export const PRODUCT_DELETION_HOURS = 12; // a PENDING request is carried out this long after it was made
+export const PRODUCT_DELETION_REASON_MAX = 500;

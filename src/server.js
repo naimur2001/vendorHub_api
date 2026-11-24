@@ -6,6 +6,7 @@ import { expireStaleBargains } from './modules/bargains/bargains.service.js';
 import { runAccountDeletionJobs } from './modules/users/accountDeletion.job.js';
 import { runReservationSweep } from './jobs/reservations.js';
 import { runToLetSweep } from './modules/toLet/toLet.job.js';
+import { runProductDeletionSweep } from './modules/productDeletion/productDeletion.job.js';
 const server = app.listen(env.PORT, () => {
   logger.info(`API running on http://localhost:${env.PORT}`);
 });
@@ -31,6 +32,11 @@ const toLetJob = setInterval(runToLetSweep, 6 * 60 * 60 * 1000);
 toLetJob.unref();
 setTimeout(runToLetSweep, 90 * 1000).unref();
 
+// Product deletion requests: carry out the ones whose 12 hours are over.
+const productDeletionJob = setInterval(runProductDeletionSweep, 10 * 60 * 1000);
+productDeletionJob.unref();
+setTimeout(runProductDeletionSweep, 2 * 60 * 1000).unref();
+
 const deletionJob = setInterval(runDeletions, 60 * 60 * 1000);
 deletionJob.unref();
 setTimeout(runDeletions, 60 * 1000).unref(); // also shortly after start
@@ -42,6 +48,7 @@ function shutdown(signal) {
   clearInterval(reservationJob);
   clearInterval(deletionJob);
   clearInterval(toLetJob);
+  clearInterval(productDeletionJob);
   server.close(async () => {
     await prisma.$disconnect();
     process.exit(0);

@@ -109,6 +109,7 @@ const slugify = (s) =>
 // Children first, parents last (foreign keys point child -> parent)
 async function clean() {
   await prisma.$transaction([
+        prisma.productDeletionRequest.deleteMany(),
         prisma.toLetMessage.deleteMany(),
         prisma.toLetThread.deleteMany(),
         prisma.toLetInquiry.deleteMany(),

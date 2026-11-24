@@ -1,0 +1,399 @@
+# Product deletion requests (shop owner asks, admins decide, or the job deletes after 12 hours) and
+# the admin's immediate permanent delete.
+# Rules: a product with order items is never hard deleted: it is deactivated (outcome DEACTIVATED) so
+# order history stays. A hard delete removes, in one transaction, the product's listings and what links
+# to them (cart items, wishlist items, bargains, flash deals), its reviews, its photos (Image rows; the
+# files after the commit) and its featured slots. Every outcome is in the audit log.
+# Notifications: PRODUCT_DELETION_REQUESTED (to admins), PRODUCT_DELETION_REJECTED and
+# PRODUCT_DELETION_DONE (to the shop owner); data = { requestId, productId, shopId[, outcome] }.
+paths:
+  /api/v1/shops/{shopId}/products/{productId}/deletion-request:
+    parameters:
+      - $ref: '#/components/parameters/DeletionShopId'
+      - name: productId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Product deletion]
+      operationId: requestProductDeletion
+      summary: Ask to delete a product your shop created (shop owner only)
+      description: >-
+        The product is hidden from public pages at once (as if deactivated) and every admin is notified.
+        It is deleted automatically at autoDeleteAt (12 hours later) unless an admin rejects the request.
+        Staff and admins get 403. 404 when the shop neither created nor lists the product.
+        409 with error.details.code: NOT_CREATED_BY_SHOP (a shared catalog product: remove your listing
+        instead), PRODUCT_LOCKED (Vendors Hub locked it), SHARED_PRODUCT (another shop lists it),
+        ALREADY_PENDING (one pending request per product).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        '201':
+          $ref: '#/components/responses/DeletionRequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/shops/{shopId}/deletion-requests:
+    parameters:
+      - $ref: '#/components/parameters/DeletionShopId'
+    get:
+      tags: [Product deletion]
+      operationId: listShopDeletionRequests
+      summary: The shop's deletion requests, newest first (shop owner only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DeletionStatus'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/DeletionLimit'
+      responses:
+        '200':
+          description: One page of requests.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProductDeletionRequest'
+                  meta:
+                    type: object
+                    required: [pagination]
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/shops/{shopId}/deletion-requests/{id}:
+    parameters:
+      - $ref: '#/components/parameters/DeletionShopId'
+      - $ref: '#/components/parameters/DeletionRequestId'
+    delete:
+      tags: [Product deletion]
+      operationId: cancelProductDeletion
+      summary: Cancel a pending request (shop owner only); the product is visible again
+      description: 409 NOT_PENDING when the request was already decided.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/DeletionRequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/admin/deletion-requests:
+    get:
+      tags: [Product deletion]
+      operationId: adminListDeletionRequests
+      summary: All deletion requests (ADMIN). status=PENDING is ordered by autoDeleteAt, the rest newest first
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DeletionStatus'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/DeletionLimit'
+      responses:
+        '200':
+          description: One page of requests.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminProductDeletionRequest'
+                  meta:
+                    type: object
+                    required: [pagination]
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/admin/deletion-requests/{id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/DeletionRequestId'
+    post:
+      tags: [Product deletion]
+      operationId: adminRejectDeletionRequest
+      summary: Reject a pending request (ADMIN); the product is visible again and the owner is notified
+      description: 409 NOT_PENDING when the request was already decided.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [note]
+              properties:
+                note:
+                  type: string
+                  minLength: 3
+                  maxLength: 500
+      responses:
+        '200':
+          $ref: '#/components/responses/DeletionRequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/admin/deletion-requests/{id}/approve:
+    parameters:
+      - $ref: '#/components/parameters/DeletionRequestId'
+    post:
+      tags: [Product deletion]
+      operationId: adminApproveDeletionRequest
+      summary: Approve a pending request (ADMIN); the product is deleted now (or deactivated if it has orders)
+      description: The request becomes DONE with its outcome; the owner is notified. 409 NOT_PENDING when already decided.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/DeletionRequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/admin/products/{id}/permanent:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [Product deletion]
+      operationId: adminDeleteProductPermanently
+      summary: Delete any product at once (ADMIN); a product with orders is deactivated instead
+      description: >-
+        Removes every shop's listing of it. A pending deletion request for the product is closed as DONE
+        with the same outcome and its owner is notified. (DELETE /admin/products/{id} still only deactivates.)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: What happened.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [productId, outcome]
+                    properties:
+                      productId:
+                        type: string
+                        format: uuid
+                      outcome:
+                        $ref: '#/components/schemas/ProductDeletionOutcome'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  parameters:
+    DeletionShopId:
+      name: shopId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DeletionRequestId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DeletionStatus:
+      name: status
+      in: query
+      schema:
+        $ref: '#/components/schemas/ProductDeletionStatus'
+    DeletionLimit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+  responses:
+    DeletionRequestResponse:
+      description: The request.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                $ref: '#/components/schemas/ProductDeletionRequest'
+  schemas:
+    ProductDeletionStatus:
+      type: string
+      enum: [PENDING, REJECTED, CANCELLED, DONE]
+    ProductDeletionOutcome:
+      type: string
+      enum: [DELETED, DEACTIVATED]
+    ProductDeletionRequest:
+      type: object
+      required: [id, productId, productTitle, shopId, reason, status, outcome, autoDeleteAt, rejectNote, decidedAt, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          format: uuid
+        productTitle:
+          type: string
+          description: The title when the request was made (kept after the product is deleted).
+        shopId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/ProductDeletionStatus'
+        outcome:
+          allOf:
+            - $ref: '#/components/schemas/ProductDeletionOutcome'
+          nullable: true
+          description: null until DONE.
+        autoDeleteAt:
+          type: string
+          format: date-time
+          description: createdAt + 12 hours; the job carries the request out then.
+        rejectNote:
+          type: string
+          nullable: true
+        decidedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    AdminProductDeletionRequest:
+      allOf:
+        - $ref: '#/components/schemas/ProductDeletionRequest'
+        - type: object
+          required: [requestedById, decidedById, shop, product]
+          properties:
+            requestedById:
+              type: string
+              format: uuid
+            decidedById:
+              type: string
+              format: uuid
+              nullable: true
+              description: The admin who approved or rejected; null when the job or the owner decided.
+            shop:
+              type: object
+              required: [id, name, slug]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                slug:
+                  type: string
+            product:
+              type: object
+              nullable: true
+              description: The product now; null once it has been deleted.
+              required: [id, slug, title, isActive]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                slug:
+                  type: string
+                title:
+                  type: string
+                isActive:
+                  type: boolean

@@ -241,6 +241,7 @@ model Shop {
   followers        ShopFollow[]
   photos           ShopPhoto[]
   coupons          Coupon[]
+  productDeletionRequests ProductDeletionRequest[]
   returnPolicy     String?
   returnWindowDays Int                @default(7)
 
@@ -1276,4 +1277,44 @@ model ToLetNote {
   author    User         @relation(fields: [authorId], references: [id])
 
   @@index([listingId, createdAt])
+}
+
+// ───────────── PRODUCT DELETION REQUESTS ─────────────
+
+enum ProductDeletionStatus {
+  PENDING
+  REJECTED
+  CANCELLED
+  DONE
+}
+
+enum ProductDeletionOutcome {
+  DELETED // hard deleted (no orders)
+  DEACTIVATED // the product has orders: only isActive = false, order history stays
+}
+
+// A shop owner asks to delete a product their shop created. The product is hidden at once
+// (isActive = false) and deleted at autoDeleteAt (createdAt + 12 h) unless an admin rejects it first.
+// productId has no foreign key on purpose: a DONE request outlives the deleted product (productTitle
+// keeps its name). At most one PENDING request per product (partial unique index in the migration).
+model ProductDeletionRequest {
+  id               String                  @id @default(uuid())
+  productId        String
+  productTitle     String // snapshot
+  productWasActive Boolean // restored on reject / cancel
+  shopId           String
+  requestedById    String
+  reason           String? // max 500
+  status           ProductDeletionStatus   @default(PENDING)
+  outcome          ProductDeletionOutcome?
+  autoDeleteAt     DateTime
+  rejectNote       String?
+  decidedById      String? // the admin who approved or rejected (null when the job or the owner decided)
+  decidedAt        DateTime?
+  createdAt        DateTime                @default(now())
+  shop             Shop                    @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([status, autoDeleteAt])
+  @@index([shopId, createdAt])
+  @@index([productId])
 }

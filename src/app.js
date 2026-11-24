@@ -33,6 +33,7 @@ import shopPhotoRoutes from './modules/shopPhotos/shopPhotos.routes.js';
 import tryOnRoutes from './modules/tryOn/tryOn.routes.js';
 import mediaRoutes from './modules/media/media.routes.js';
 import shopProductRoutes from './modules/shopProducts/shopProducts.routes.js';
+import productDeletionRoutes from './modules/productDeletion/productDeletion.routes.js';
 import searchRoutes from './modules/search/search.routes.js';
 import bannerRoutes from './modules/banners/banners.routes.js';
 import wishlistRoutes from './modules/wishlist/wishlist.routes.js';
@@ -145,6 +146,7 @@ app.use('/api/v1', notificationRoutes);
 app.use('/api/v1', shopPhotoRoutes);
 app.use('/api/v1', tryOnRoutes);
 app.use('/api/v1', shopProductRoutes);
+app.use('/api/v1', productDeletionRoutes);
 app.use('/api/v1', searchRoutes);
 
 
