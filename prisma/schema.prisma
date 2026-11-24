@@ -172,6 +172,13 @@ model Address {
   city      String  @default("Dhaka")
   phone     String
   isDefault Boolean @default(false)
+  // courier location picked from GET /delivery/locations/* (names filled in by the server); needed for courier delivery
+  courierCityId   Int?
+  courierCityName String?
+  courierZoneId   Int?
+  courierZoneName String?
+  courierAreaId   Int?
+  courierAreaName String?
   user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
@@ -242,6 +249,9 @@ model Shop {
   photos           ShopPhoto[]
   coupons          Coupon[]
   productDeletionRequests ProductDeletionRequest[]
+  deliveryMode     ShopDeliveryMode @default(OWN) // OWN = the shop delivers (as before); PLATFORM_COURIER = our courier account
+  courierStoreId   String? // the courier's pickup store for this shop (admin action); never shown outside the admin
+  shipments        Shipment[]
   returnPolicy     String?
   returnWindowDays Int                @default(7)
 
@@ -503,6 +513,7 @@ model SubOrder {
   statusAt      DateTime  @default(now()) // when the current status was set (late-order rules)
   shopRemindedAt DateTime? // the last admin "order is late" reminder (once per hour)
   adminNotes    AdminOrderNote[]
+  shipment      Shipment?
 
   @@index([shopId, status])
   @@index([checkoutId])
@@ -1326,4 +1337,130 @@ model ProductDeletionRequest {
   @@index([shopId, createdAt])
   @@index([productId])
   @@index([shopId, productId])
+}
+
+// ───────────── COURIER DELIVERY ─────────────
+
+enum CourierCode {
+  PATHAO
+  STEADFAST
+  REDX
+  PAPERFLY
+  ECOURIER
+}
+
+enum ShopDeliveryMode {
+  OWN
+  PLATFORM_COURIER
+}
+
+enum DeliveryZoneCode {
+  INSIDE_DHAKA
+  DHAKA_SUBURB
+  OUTSIDE_DHAKA
+}
+
+enum ShipmentStatus {
+  PENDING
+  BOOKED
+  PICKUP_ASSIGNED
+  PICKED_UP
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  RETURNING
+  RETURNED
+  CANCELLED
+}
+
+// A courier company. API keys live only in env (never here). Exactly one default among the active
+// ones (service rule + partial unique index on isDefault in the migration).
+model CourierProvider {
+  id        String      @id @default(uuid())
+  code      CourierCode @unique
+  name      String
+  isActive  Boolean     @default(false)
+  isDefault Boolean     @default(false)
+  sandbox   Boolean     @default(true)
+  config    Json? // non-secret settings only (e.g. { deliveryType: 48, itemType: 2, itemWeight: 0.5 })
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  shipments Shipment[]
+}
+
+// What the customer pays for courier delivery. An address maps to a zone by its courier zone id
+// (courierZoneIds), else its courier city id (courierCityIds), else OUTSIDE_DHAKA.
+model DeliveryZone {
+  id             String           @id @default(uuid())
+  name           String
+  code           DeliveryZoneCode @unique
+  customerFee    Int
+  etaText        String
+  isActive       Boolean          @default(true)
+  courierCityIds Int[]            @default([])
+  courierZoneIds Int[]            @default([])
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+// One per courier SubOrder, made at checkout (PENDING) and booked when the shop marks the order ready.
+// margin = customerFee - courierCost (Vendors Hub's earning). recipient = the delivery snapshot.
+model Shipment {
+  id               String           @id @default(uuid())
+  subOrderId       String           @unique
+  shopId           String
+  providerId       String?
+  consignmentId    String?
+  trackingCode     String?
+  status           ShipmentStatus   @default(PENDING)
+  statusAt         DateTime         @default(now())
+  zoneCode         DeliveryZoneCode
+  customerFee      Int
+  courierCost      Int?
+  margin           Int?
+  codAmount        Int              @default(0)
+  codCollected     Boolean          @default(false)
+  codRemittedAt    DateTime?
+  shopPaidAt       DateTime?
+  bookedAt         DateTime?
+  pickedUpAt       DateTime?
+  deliveredAt      DateTime?
+  failReason       String?
+  recipient        Json // { name, phone, address, cityId, zoneId, areaId }
+  bookingAttempts  Int              @default(0)
+  nextAttemptAt    DateTime? // a failed booking is retried then (null = no retry planned)
+  bookingStartedAt DateTime? // claim: one booking at a time
+  lastError        String?
+  lastEventAt      DateTime? // the newest courier event applied (older ones are ignored)
+  lastSyncedAt     DateTime? // the polling job's last look
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  subOrder         SubOrder         @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+  shop             Shop             @relation(fields: [shopId], references: [id])
+  provider         CourierProvider? @relation(fields: [providerId], references: [id])
+  events           ShipmentEvent[]
+
+  @@unique([providerId, consignmentId])
+  @@index([status])
+  @@index([providerId])
+  @@index([createdAt])
+  @@index([shopId])
+  @@index([status, nextAttemptAt])
+}
+
+model ShipmentEvent {
+  id         String          @id @default(uuid())
+  shipmentId String
+  status     ShipmentStatus? // null = a courier event that does not change our status (e.g. on hold, paid)
+  rawStatus  String // the courier's own status or event name (admin only)
+  note       String?
+  source     String // WEBHOOK | POLL | SYSTEM | ADMIN
+  dedupeKey  String          @unique
+  raw        Json? // the courier payload (admin only)
+  at         DateTime
+  createdAt  DateTime        @default(now())
+  shipment   Shipment        @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId, at])
 }

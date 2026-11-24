@@ -7,6 +7,8 @@ import { runAccountDeletionJobs } from './modules/users/accountDeletion.job.js';
 import { runReservationSweep } from './jobs/reservations.js';
 import { runToLetSweep } from './modules/toLet/toLet.job.js';
 import { runProductDeletionSweep } from './modules/productDeletion/productDeletion.job.js';
+import { runBookingRetries, runShipmentPoll } from './modules/delivery/delivery.job.js';
+import { SHIPMENT_POLL_MINUTES } from './config/limits.js';
 const server = app.listen(env.PORT, () => {
   logger.info(`API running on http://localhost:${env.PORT}`);
 });
@@ -32,6 +34,12 @@ const toLetJob = setInterval(runToLetSweep, 6 * 60 * 60 * 1000);
 toLetJob.unref();
 setTimeout(runToLetSweep, 90 * 1000).unref();
 
+// Courier delivery: booking retries every minute; tracking poll in case a webhook was missed.
+const bookingJob = setInterval(runBookingRetries, 60 * 1000);
+bookingJob.unref();
+const pollJob = setInterval(runShipmentPoll, SHIPMENT_POLL_MINUTES * 60 * 1000);
+pollJob.unref();
+
 // Product deletion requests: carry out the ones whose 12 hours are over.
 const productDeletionJob = setInterval(runProductDeletionSweep, 10 * 60 * 1000);
 productDeletionJob.unref();
@@ -49,6 +57,8 @@ function shutdown(signal) {
   clearInterval(deletionJob);
   clearInterval(toLetJob);
   clearInterval(productDeletionJob);
+  clearInterval(bookingJob);
+  clearInterval(pollJob);
   server.close(async () => {
     await prisma.$disconnect();
     process.exit(0);

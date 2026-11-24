@@ -8,6 +8,8 @@ import { unreadCounts } from '../orderChat/orderChat.service.js';
 import { releasePromotions } from '../promotions/promotions.service.js';
 import { rewardReferralIfDue, notifyReferralReward } from '../referrals/referrals.service.js';
 import { refundPayments } from '../payments/payments.service.js';
+import { shipmentInclude, forShop } from '../delivery/shipments.present.js';
+import { autoBook } from '../delivery/shipments.service.js';
 
 // Which statuses an order may move to from each status.
 const TRANSITIONS = {
@@ -22,10 +24,23 @@ const TRANSITIONS = {
 const orderInclude = {
   items: true,
   checkout: { select: { userId: true, user: { select: { name: true, phone: true } } } },
+  shipment: { include: shipmentInclude },
 };
+
+// Courier orders (a shipment exists): the shop marks them READY_FOR_PICKUP (that books the courier);
+// from then on the courier drives the status (webhook / polling), and a booked one is cancelled by admins.
+function courierNext(order) {
+  if (order.status === 'CONFIRMED') return ['READY_FOR_PICKUP', 'CANCELLED'];
+  if (order.status === 'READY_FOR_PICKUP') return ['PENDING', 'CANCELLED'].includes(order.shipment.status) ? ['CANCELLED'] : [];
+  if (order.status === 'PLACED') return TRANSITIONS.PLACED;
+  return [];
+}
 
 // The statuses this order may move to right now (also tells the UI which buttons to show).
 function allowedNext(order) {
+  if (order.shipment) {
+    return courierNext(order).filter((next) => next !== 'CONFIRMED' || order.paymentMethod !== 'ONLINE' || order.paymentStatus === 'PAID');
+  }
   return TRANSITIONS[order.status].filter((next) => {
     if (next === 'READY_FOR_PICKUP') return order.deliveryMethod !== 'VENDOR_DELIVERY'; // STORE_PICKUP or RESERVE_PICKUP
     if (next === 'OUT_FOR_DELIVERY') return order.deliveryMethod === 'VENDOR_DELIVERY';
@@ -60,6 +75,8 @@ const formatForShop = (o) => ({
     bargained: i.bargained,
   })),
   nextStatuses: allowedNext(o),
+  // courier orders only (else null): no courier cost, no margin
+  shipment: forShop(o.shipment),
 });
 
 // Puts the stock of a cancelled order back and re-derives the public availability.
@@ -89,6 +106,8 @@ export async function restock(tx, orderId) {
 // Everything that must happen when an order is cancelled (mock refund until a real gateway exists).
 export async function cancelEffects(tx, order) {
   await restock(tx, order.id);
+  // a courier shipment that was never booked goes with the order (a booked one is cancelled by admins)
+  await tx.shipment.updateMany({ where: { subOrderId: order.id, status: 'PENDING' }, data: { status: 'CANCELLED', statusAt: new Date(), nextAttemptAt: null } });
   await releasePromotions(tx, order.id); // flash-deal units and the coupon use come back
   if (order.paymentMethod === 'ONLINE' && order.paymentStatus === 'PAID') {
     await refundPayments(await tx.payment.findMany({ where: { subOrderId: order.id, status: 'PAID' } })); // the provider first
@@ -159,10 +178,18 @@ export async function changeStatus(user, shopId, orderId, { status, reason }) {
   });
   if (!order) throw new AppError(404, 'Order not found');
 
+  if (order.shipment) {
+    if (['OUT_FOR_DELIVERY', 'COMPLETED'].includes(status)) {
+      throw new AppError(409, 'The courier updates this order. It changes when the courier picks it up and delivers it', { code: 'COURIER_MANAGED' });
+    }
+    if (status === 'CANCELLED' && !['PENDING', 'CANCELLED'].includes(order.shipment.status)) {
+      throw new AppError(409, 'The courier is already booked. Ask Vendors Hub to cancel the shipment first', { code: 'SHIPMENT_BOOKED' });
+    }
+  }
   if (!TRANSITIONS[order.status].includes(status)) {
     throw new AppError(409, `An order that is ${order.status} cannot move to ${status}`);
   }
-  if (status === 'READY_FOR_PICKUP' && order.deliveryMethod === 'VENDOR_DELIVERY') {
+  if (status === 'READY_FOR_PICKUP' && order.deliveryMethod === 'VENDOR_DELIVERY' && !order.shipment) {
     throw new AppError(409, 'Only pickup orders can be marked ready for pickup');
   }
   if (status === 'OUT_FOR_DELIVERY' && order.deliveryMethod !== 'VENDOR_DELIVERY') {
@@ -199,6 +226,7 @@ export async function changeStatus(user, shopId, orderId, { status, reason }) {
   });
   await notifyStatusChange(order, status, reason); // after the commit, never throws
   await notifyReferralReward(referralReward);
+  if (status === 'READY_FOR_PICKUP' && order.shipment) await autoBook(orderId); // never throws; a failure is retried
   return getShopOrder(user, shopId, orderId);
 }
 

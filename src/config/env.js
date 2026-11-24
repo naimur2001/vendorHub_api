@@ -80,6 +80,15 @@ const schema = z
     NAGAD_MERCHANT_ID: z.string().optional(),
     NAGAD_MERCHANT_PRIVATE_KEY: z.string().optional(),
     NAGAD_PUBLIC_KEY: z.string().optional(),
+    // ---- courier delivery: mock = no courier calls (fixed prices, fake consignments; tests) ----
+    COURIER_MODE: z.enum(['mock', 'live']).default('mock'),
+    PATHAO_BASE_URL: z.string().url().optional(), // unset = sandbox or live URL from the provider's sandbox switch
+    PATHAO_CLIENT_ID: z.string().optional(),
+    PATHAO_CLIENT_SECRET: z.string().optional(),
+    PATHAO_USERNAME: z.string().optional(),
+    PATHAO_PASSWORD: z.string().optional(),
+    PATHAO_WEBHOOK_SECRET: z.string().min(16).optional(), // unset in mock mode = derived from JWT_ACCESS_SECRET
+    PATHAO_WEBHOOK_INTEGRATION_SECRET: z.string().optional(), // sent back on Pathao's webhook integration check
   })
   .superRefine((cfg, ctx) => {
     // a real provider needs its keys: fail at startup, not at the first SMS or payment
@@ -88,8 +97,9 @@ const schema = z
       'twilio-whatsapp': ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_FROM'],
       bkash: ['BKASH_APP_KEY', 'BKASH_APP_SECRET', 'BKASH_USERNAME', 'BKASH_PASSWORD'],
       nagad: ['NAGAD_MERCHANT_ID', 'NAGAD_MERCHANT_PRIVATE_KEY', 'NAGAD_PUBLIC_KEY'],
+      live: ['PATHAO_CLIENT_ID', 'PATHAO_CLIENT_SECRET', 'PATHAO_USERNAME', 'PATHAO_PASSWORD', 'PATHAO_WEBHOOK_SECRET'],
     };
-    for (const mode of [cfg.MESSAGING_MODE, cfg.PAYMENT_MODE]) {
+    for (const mode of [cfg.MESSAGING_MODE, cfg.PAYMENT_MODE, cfg.COURIER_MODE]) {
       for (const key of need[mode] ?? []) {
         if (!cfg[key]) ctx.addIssue({ code: 'custom', path: [key], message: `Required when using ${mode}` });
       }

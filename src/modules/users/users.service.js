@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
+import { addressLocation } from '../delivery/delivery.service.js';
 import { checkBirthYear } from '../../lib/demographics.js';
 
 const MAX_ADDRESSES = 10;
@@ -40,6 +41,7 @@ export async function createAddress(userId, input) {
   if (count >= MAX_ADDRESSES) throw new AppError(409, `You can save at most ${MAX_ADDRESSES} addresses`);
 
   const makeDefault = input.isDefault || count === 0; // the first address is always the default
+  if (input.courierAreaId) Object.assign(input, await addressLocation(input)); // checked; names from the lists
   return prisma.$transaction(async (tx) => {
     if (makeDefault) {
       await tx.address.updateMany({ where: { userId, isDefault: true }, data: { isDefault: false } });
@@ -51,6 +53,7 @@ export async function createAddress(userId, input) {
 export async function updateAddress(userId, id, input) {
   const address = await prisma.address.findFirst({ where: { id, userId } });
   if (!address) throw new AppError(404, 'Address not found');
+  if (input.courierAreaId) Object.assign(input, await addressLocation(input));
   if (input.isDefault === false && address.isDefault) {
     throw new AppError(400, 'Make another address the default instead');
   }

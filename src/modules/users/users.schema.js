@@ -2,6 +2,10 @@ import { z } from 'zod';
 import { GENDERS } from '../../lib/demographics.js';
 
 const bool = z.enum(['true', 'false']).transform((v) => v === 'true');
+const allOrNone = (o) => {
+  const set = [o.courierCityId, o.courierZoneId, o.courierAreaId].filter((v) => v !== undefined).length;
+  return set === 0 || set === 3;
+};
 const phone = z.string().trim().regex(/^01\d{9}$/, 'Use a Bangladesh mobile number like 01712345678');
 
 export const updateProfileSchema = z
@@ -22,7 +26,11 @@ export const addressSchema = z.object({
   city: z.string().trim().min(2).max(60).default('Dhaka'),
   phone,
   isDefault: z.boolean().default(false),
-});
+  // delivery location from GET /delivery/locations/* (all three or none); needed for courier delivery
+  courierCityId: z.number().int().positive().optional(),
+  courierZoneId: z.number().int().positive().optional(),
+  courierAreaId: z.number().int().positive().optional(),
+}).refine(allOrNone, { message: 'Send courierCityId, courierZoneId and courierAreaId together', path: ['courierAreaId'] });
 
 // Written out explicitly (no .partial()) so defaults never overwrite fields on PATCH.
 export const addressUpdateSchema = z
@@ -33,8 +41,12 @@ export const addressUpdateSchema = z
     city: z.string().trim().min(2).max(60).optional(),
     phone: phone.optional(),
     isDefault: z.boolean().optional(),
+    courierCityId: z.number().int().positive().optional(),
+    courierZoneId: z.number().int().positive().optional(),
+    courierAreaId: z.number().int().positive().optional(),
   })
-  .refine((o) => Object.keys(o).length > 0, { message: 'Provide at least one field to update' });
+  .refine((o) => Object.keys(o).length > 0, { message: 'Provide at least one field to update' })
+  .refine(allOrNone, { message: 'Send courierCityId, courierZoneId and courierAreaId together', path: ['courierAreaId'] });
 
 export const adminUsersQuery = z.object({
   q: z.string().trim().min(1).optional(),

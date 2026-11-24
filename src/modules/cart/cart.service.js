@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { deliveryAvailable } from '../delivery/delivery.service.js';
 import { AppError } from '../../lib/errors.js';
 import { recordAddToCart } from '../../lib/analytics.js';
 import { activeDeals, effectivePrice, presentDeal } from '../../lib/deals.js';
@@ -16,6 +17,8 @@ const shopSelect = {
   verificationLevel: true,
   supportsDelivery: true,
   supportsPickup: true,
+  deliveryMode: true,
+  courierStoreId: true,
   isActive: true,
   market: { select: { name: true, slug: true } },
 };
@@ -91,7 +94,10 @@ export async function getCart(userId) {
     const lineTotal = unitPrice * item.quantity;
 
     if (!groups.has(l.shop.id)) {
-      const { isActive, ...shop } = l.shop;
+      const { isActive, deliveryMode, courierStoreId, ...shop } = l.shop;
+      // false = checkout cannot offer VENDOR_DELIVERY for this shop (courier delivery not set up yet)
+      shop.deliveryAvailable = deliveryAvailable(l.shop);
+      shop.courierDelivery = deliveryMode === 'PLATFORM_COURIER'; // the fee then depends on the address's zone
       groups.set(l.shop.id, { shop, items: [], subtotal: 0 });
     }
     const group = groups.get(l.shop.id);

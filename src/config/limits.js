@@ -49,3 +49,11 @@ export const TOLET_MESSAGE_MAX = 1000;
 // Product deletion requests.
 export const PRODUCT_DELETION_HOURS = 12; // a PENDING request is carried out this long after it was made
 export const PRODUCT_DELETION_REASON_MAX = 500;
+
+// Courier delivery.
+export const COURIER_RETRY_MINUTES = [1, 5]; // a failed booking is tried again after these waits (3 tries in all)
+export const COURIER_MAX_BOOKING_TRIES = 3;
+export const COURIER_BOOKING_CLAIM_MS = 2 * 60 * 1000; // a booking that started longer ago than this is free again
+export const COURIER_LOCATIONS_CACHE_MS = 24 * 60 * 60 * 1000;
+export const SHIPMENT_STUCK_HOURS = 48; // an active shipment with no update for longer is flagged "stuck"
+export const SHIPMENT_POLL_MINUTES = 30;

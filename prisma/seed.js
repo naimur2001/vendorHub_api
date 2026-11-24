@@ -109,6 +109,10 @@ const slugify = (s) =>
 // Children first, parents last (foreign keys point child -> parent)
 async function clean() {
   await prisma.$transaction([
+        prisma.shipmentEvent.deleteMany(),
+        prisma.shipment.deleteMany(),
+        prisma.deliveryZone.deleteMany(),
+        prisma.courierProvider.deleteMany(),
         prisma.productDeletionRequest.deleteMany(),
         prisma.toLetMessage.deleteMany(),
         prisma.toLetThread.deleteMany(),
@@ -182,6 +186,24 @@ async function main() {
     select: { key: true },
   });
   await clean();
+
+  // courier delivery: 5 couriers (only Pathao active and the default) and the 3 customer fee zones
+  await prisma.courierProvider.createMany({
+    data: [
+      { code: 'PATHAO', name: 'Pathao', isActive: true, isDefault: true, sandbox: true, config: { deliveryType: 48, itemType: 2, itemWeight: 0.5 } },
+      { code: 'STEADFAST', name: 'Steadfast' },
+      { code: 'REDX', name: 'RedX' },
+      { code: 'PAPERFLY', name: 'Paperfly' },
+      { code: 'ECOURIER', name: 'eCourier' },
+    ],
+  });
+  await prisma.deliveryZone.createMany({
+    data: [
+      { code: 'INSIDE_DHAKA', name: 'Inside Dhaka', customerFee: 80, etaText: '1-2 days', courierCityIds: [1] }, // Pathao city 1 = Dhaka
+      { code: 'DHAKA_SUBURB', name: 'Dhaka suburbs', customerFee: 120, etaText: '2-3 days' },
+      { code: 'OUTSIDE_DHAKA', name: 'Outside Dhaka', customerFee: 150, etaText: '3-5 days' },
+    ],
+  });
   await Promise.all(oldPhotos.map((p) => removeImage(p.key).catch(() => {})));
 
   const passwordHash = await bcrypt.hash('Password123!', 10);

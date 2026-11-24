@@ -1,0 +1,1425 @@
+# Courier delivery (tag "Delivery"). Vendors Hub books a platform courier (Pathao first) for shops in
+# PLATFORM_COURIER mode and earns margin = customerFee - courierCost.
+# - Customer fee: from the zone of the delivery address (INSIDE_DHAKA / DHAKA_SUBURB / OUTSIDE_DHAKA,
+#   admin-set; seeded 80 / 120 / 150 taka). OWN shops keep the fixed 60 taka.
+# - Checkout for a PLATFORM_COURIER shop with VENDOR_DELIVERY needs addressId of a saved address with
+#   courierCityId / courierZoneId / courierAreaId (400 ADDRESS_NEEDS_AREA); without a courier store the
+#   shop offers no delivery (400 DELIVERY_UNAVAILABLE; cart shop.deliveryAvailable = false).
+# - The shop marks a courier order READY_FOR_PICKUP: that books the courier. From then on the courier
+#   drives the order (PICKED_UP -> OUT_FOR_DELIVERY, DELIVERED -> COMPLETED and COD PAID, RETURNED ->
+#   CANCELLED); the shop gets 409 COURIER_MANAGED / SHIPMENT_BOOKED for manual changes.
+# - Who sees what: customers see status + timeline, and courier { name } + trackingCode only from
+#   PICKED_UP on; shops never see courierCost or margin; admins see everything.
+# Notifications: SHIPMENT_PICKED_UP, SHIPMENT_DELIVERED (customer and shop team); SHIPMENT_FAILED,
+# SHIPMENT_RETURNED, SHIPMENT_BOOKING_FAILED (shop team and admins); data { orderId, shopId, status }.
+paths:
+  /api/v1/delivery/locations/cities:
+    get:
+      tags: [Delivery]
+      operationId: deliveryCities
+      summary: Cities for the address form (names only, cached 24 h)
+      responses:
+        '200':
+          $ref: '#/components/responses/DeliveryLocations'
+        '502':
+          $ref: '#/components/responses/CourierUnavailable'
+        '503':
+          $ref: '#/components/responses/CourierUnavailable'
+  /api/v1/delivery/locations/cities/{id}/zones:
+    parameters:
+      - $ref: '#/components/parameters/CourierLocationId'
+    get:
+      tags: [Delivery]
+      operationId: deliveryZonesOfCity
+      summary: Zones of a city
+      responses:
+        '200':
+          $ref: '#/components/responses/DeliveryLocations'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '502':
+          $ref: '#/components/responses/CourierUnavailable'
+        '503':
+          $ref: '#/components/responses/CourierUnavailable'
+  /api/v1/delivery/locations/zones/{id}/areas:
+    parameters:
+      - $ref: '#/components/parameters/CourierLocationId'
+    get:
+      tags: [Delivery]
+      operationId: deliveryAreasOfZone
+      summary: Areas of a zone
+      responses:
+        '200':
+          $ref: '#/components/responses/DeliveryLocations'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '502':
+          $ref: '#/components/responses/CourierUnavailable'
+        '503':
+          $ref: '#/components/responses/CourierUnavailable'
+
+  /api/v1/webhooks/couriers/pathao:
+    post:
+      tags: [Delivery]
+      operationId: pathaoWebhook
+      summary: Pathao status webhook (server to server; the web app never calls it)
+      description: >-
+        Header X-PATHAO-Signature must equal the webhook secret (else 401). Duplicates and events older
+        than the newest applied one are ignored. Pathao's integration check (event webhook_integration)
+        gets 202 and the X-Pathao-Merchant-Webhook-Integration-Secret header when configured.
+      parameters:
+        - name: X-PATHAO-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              properties:
+                consignment_id:
+                  type: string
+                event:
+                  type: string
+                  example: order.delivered
+                updated_at:
+                  type: string
+      responses:
+        '202':
+          description: Received.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      integration:
+                        type: boolean
+                      received:
+                        type: integer
+                      applied:
+                        type: integer
+                      ignored:
+                        type: integer
+                      unknown:
+                        type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/shops/{shopId}/delivery-mode:
+    parameters:
+      - $ref: '#/components/parameters/DeliveryShopId'
+    patch:
+      tags: [Delivery]
+      operationId: setShopDeliveryMode
+      summary: OWN or PLATFORM_COURIER (shop owner only)
+      description: PLATFORM_COURIER offers delivery only once an admin has created the courier store (courierReady).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [deliveryMode]
+              properties:
+                deliveryMode:
+                  $ref: '#/components/schemas/ShopDeliveryMode'
+      responses:
+        '200':
+          description: The new mode.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [shopId, deliveryMode, courierReady]
+                    properties:
+                      shopId:
+                        type: string
+                        format: uuid
+                      deliveryMode:
+                        $ref: '#/components/schemas/ShopDeliveryMode'
+                      courierReady:
+                        type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/shops/{shopId}/orders/{orderId}/ship:
+    parameters:
+      - $ref: '#/components/parameters/DeliveryShopId'
+      - name: orderId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Delivery]
+      operationId: shipOrder
+      summary: Book the courier for a courier order now (idempotent; READY_FOR_PICKUP does it too)
+      description: >-
+        Shop team or admin. An already booked shipment is returned unchanged. 409 NOT_COURIER_ORDER,
+        ORDER_NOT_READY (not CONFIRMED or READY_FOR_PICKUP); 502 BOOKING_FAILED (kept PENDING and retried).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The shipment (shop view).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ShopShipment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/CourierUnavailable'
+
+  /api/v1/admin/shops/{shopId}/courier-store:
+    parameters:
+      - $ref: '#/components/parameters/DeliveryShopId'
+    post:
+      tags: [Delivery]
+      operationId: adminCreateCourierStore
+      summary: Create (or refresh) the shop's pickup store at the default courier (ADMIN)
+      description: >-
+        Uses the shop's name, phone and address; the location is required the first time (400
+        LOCATION_REQUIRED). state PENDING_APPROVAL = the courier approves the store later: call again
+        to fetch its id. 409 SHOP_PHONE_MISSING.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                courierCityId:
+                  type: integer
+                courierZoneId:
+                  type: integer
+                courierAreaId:
+                  type: integer
+      responses:
+        '200':
+          description: The store.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [shopId, provider, courierStoreId, state]
+                    properties:
+                      shopId:
+                        type: string
+                        format: uuid
+                      provider:
+                        $ref: '#/components/schemas/CourierCode'
+                      courierStoreId:
+                        type: string
+                        nullable: true
+                      state:
+                        type: string
+                        enum: [READY, PENDING_APPROVAL]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/CourierUnavailable'
+
+  /api/v1/admin/couriers:
+    get:
+      tags: [Delivery]
+      operationId: adminListCouriers
+      summary: The courier providers (ADMIN; API keys live only in env and are never returned)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The providers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CourierProvider'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/couriers/{id}:
+    parameters:
+      - $ref: '#/components/parameters/DeliveryUuid'
+    patch:
+      tags: [Delivery]
+      operationId: adminUpdateCourier
+      summary: Switch a courier on or off, make it the default, sandbox, settings (ADMIN, audited)
+      description: >-
+        Exactly one active default: 409 DEFAULT_MUST_BE_ACTIVE, DEFAULT_REQUIRED (make another one the
+        default first). Setting isDefault true moves the default here.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                isActive:
+                  type: boolean
+                isDefault:
+                  type: boolean
+                sandbox:
+                  type: boolean
+                config:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    deliveryType:
+                      type: integer
+                      enum: [48, 12]
+                    itemType:
+                      type: integer
+                      enum: [1, 2]
+                    itemWeight:
+                      type: number
+                      minimum: 0.1
+                      maximum: 30
+      responses:
+        '200':
+          description: The provider.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/CourierProvider'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/admin/delivery-zones:
+    get:
+      tags: [Delivery]
+      operationId: adminListDeliveryZones
+      summary: Delivery zones and customer fees (ADMIN)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The zones.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DeliveryZone'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Delivery]
+      operationId: adminCreateDeliveryZone
+      summary: Create a zone (one per code; 409 ZONE_EXISTS)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeliveryZoneInput'
+      responses:
+        '201':
+          $ref: '#/components/responses/DeliveryZoneResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/delivery-zones/{id}:
+    parameters:
+      - $ref: '#/components/parameters/DeliveryUuid'
+    patch:
+      tags: [Delivery]
+      operationId: adminUpdateDeliveryZone
+      summary: Change a zone's fee, ETA, courier city / zone ids or switch it off
+      description: An address maps to a zone by courierZoneIds, then courierCityIds, else OUTSIDE_DHAKA. An inactive zone has no delivery.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name:
+                  type: string
+                customerFee:
+                  type: integer
+                  minimum: 0
+                etaText:
+                  type: string
+                isActive:
+                  type: boolean
+                courierCityIds:
+                  type: array
+                  items:
+                    type: integer
+                courierZoneIds:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        '200':
+          $ref: '#/components/responses/DeliveryZoneResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Delivery]
+      operationId: adminDeleteDeliveryZone
+      summary: 'Delete a zone (OUTSIDE_DHAKA is the fallback: 409 FALLBACK_ZONE)'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/admin/delivery/summary:
+    get:
+      tags: [Delivery]
+      operationId: adminDeliverySummary
+      summary: Delivery numbers for a range (ADMIN)
+      description: Shipments count by the day they were made; money counts on DELIVERED shipments. successRate = delivered / (delivered + failed + returned), in percent.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DeliveryFrom'
+        - $ref: '#/components/parameters/DeliveryTo'
+        - $ref: '#/components/parameters/DeliveryProviderId'
+        - $ref: '#/components/parameters/DeliveryShopFilter'
+      responses:
+        '200':
+          description: The summary.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/DeliveryMetrics'
+                      - type: object
+                        required: [from, to, countsByStatus]
+                        properties:
+                          from:
+                            type: string
+                            format: date
+                          to:
+                            type: string
+                            format: date
+                          countsByStatus:
+                            type: object
+                            additionalProperties:
+                              type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/delivery/timeseries:
+    get:
+      tags: [Delivery]
+      operationId: adminDeliveryTimeseries
+      summary: Per Dhaka day - booked, delivered, failed, fees, cost, margin, courier orders placed and their value (ADMIN)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: interval
+          in: query
+          schema:
+            type: string
+            enum: [day]
+            default: day
+        - $ref: '#/components/parameters/DeliveryFrom'
+        - $ref: '#/components/parameters/DeliveryTo'
+        - $ref: '#/components/parameters/DeliveryProviderId'
+        - $ref: '#/components/parameters/DeliveryShopFilter'
+      responses:
+        '200':
+          description: One point per day, every day of the range.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [from, to, interval, points]
+                    properties:
+                      from:
+                        type: string
+                        format: date
+                      to:
+                        type: string
+                        format: date
+                      interval:
+                        type: string
+                      points:
+                        type: array
+                        items:
+                          type: object
+                          required: [day, booked, delivered, failed, customerFees, courierCost, margin, ordersPlaced, orderValue]
+                          properties:
+                            day:
+                              type: string
+                              format: date
+                            booked:
+                              type: integer
+                            delivered:
+                              type: integer
+                            failed:
+                              type: integer
+                            customerFees:
+                              type: integer
+                            courierCost:
+                              type: integer
+                            margin:
+                              type: integer
+                            ordersPlaced:
+                              type: integer
+                            orderValue:
+                              type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/delivery/by-shop:
+    get:
+      tags: [Delivery]
+      operationId: adminDeliveryByShop
+      summary: The summary numbers per shop, most delivered first (ADMIN)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DeliveryFrom'
+        - $ref: '#/components/parameters/DeliveryTo'
+        - $ref: '#/components/parameters/DeliveryProviderId'
+        - $ref: '#/components/parameters/DeliveryShopFilter'
+      responses:
+        '200':
+          $ref: '#/components/responses/DeliveryRanking'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/delivery/by-provider:
+    get:
+      tags: [Delivery]
+      operationId: adminDeliveryByProvider
+      summary: The summary numbers per courier, most delivered first (ADMIN)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DeliveryFrom'
+        - $ref: '#/components/parameters/DeliveryTo'
+        - $ref: '#/components/parameters/DeliveryProviderId'
+        - $ref: '#/components/parameters/DeliveryShopFilter'
+      responses:
+        '200':
+          $ref: '#/components/responses/DeliveryRanking'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/admin/shipments:
+    get:
+      tags: [Delivery]
+      operationId: adminListShipments
+      summary: Shipments, newest first (ADMIN); stuck = active and no status change for 48 h
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ShipmentStatus'
+        - $ref: '#/components/parameters/DeliveryProviderId'
+        - $ref: '#/components/parameters/DeliveryShopFilter'
+        - name: q
+          in: query
+          description: Part of the order number, or the exact tracking code / consignment id.
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 60
+        - name: stuck
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - $ref: '#/components/parameters/DeliveryFrom'
+        - $ref: '#/components/parameters/DeliveryTo'
+        - $ref: '#/components/parameters/Page'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminShipment'
+                  meta:
+                    type: object
+                    required: [pagination]
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/shipments/{id}:
+    parameters:
+      - $ref: '#/components/parameters/DeliveryUuid'
+    get:
+      tags: [Delivery]
+      operationId: adminGetShipment
+      summary: One shipment with the recipient and every courier event, raw data included (ADMIN)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/AdminShipmentDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/shipments/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/DeliveryUuid'
+    post:
+      tags: [Delivery]
+      operationId: adminCancelShipment
+      summary: Cancel at the courier before pickup (ADMIN, audited); 409 SHIPMENT_NOT_CANCELLABLE
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/AdminShipmentDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/CourierUnavailable'
+  /api/v1/admin/shipments/{id}/rebook:
+    parameters:
+      - $ref: '#/components/parameters/DeliveryUuid'
+    post:
+      tags: [Delivery]
+      operationId: adminRebookShipment
+      summary: Book again from scratch (PENDING, FAILED or CANCELLED; the order still open) (ADMIN, audited)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/AdminShipmentDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/shipments/{id}/mark-cod-remitted:
+    parameters:
+      - $ref: '#/components/parameters/DeliveryUuid'
+    post:
+      tags: [Delivery]
+      operationId: adminMarkCodRemitted
+      summary: The courier paid us the collected cash (ADMIN, audited; 409 NOT_DUE)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/AdminShipmentDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/shipments/{id}/mark-shop-paid:
+    parameters:
+      - $ref: '#/components/parameters/DeliveryUuid'
+    post:
+      tags: [Delivery]
+      operationId: adminMarkShopPaid
+      summary: We paid the shop for this delivered order (ADMIN, audited; 409 NOT_DUE)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/AdminShipmentDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  # ---- existing endpoints: addresses take a delivery location ----
+  /api/v1/users/me/addresses:
+    post:
+      tags: [Profile]
+      operationId: createMyAddress
+      summary: Save an address (at most 10; the first one becomes the default)
+      description: >-
+        courierCityId / courierZoneId / courierAreaId (all three or none) come from GET
+        /delivery/locations/*; the server checks them and fills in the names (400 BAD_LOCATION).
+        Courier delivery needs them.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddressInput'
+      responses:
+        '201':
+          description: The saved address.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Address'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+components:
+  parameters:
+    CourierLocationId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    DeliveryShopId:
+      name: shopId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DeliveryUuid:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DeliveryFrom:
+      name: from
+      in: query
+      description: First Dhaka day (YYYY-MM-DD), inclusive. Default 29 days before "to".
+      schema:
+        type: string
+        format: date
+    DeliveryTo:
+      name: to
+      in: query
+      description: Last Dhaka day, inclusive. Default today. At most one year.
+      schema:
+        type: string
+        format: date
+    DeliveryProviderId:
+      name: providerId
+      in: query
+      schema:
+        type: string
+        format: uuid
+    DeliveryShopFilter:
+      name: shopId
+      in: query
+      schema:
+        type: string
+        format: uuid
+  responses:
+    CourierUnavailable:
+      description: The courier is not reachable (502 COURIER_UNAVAILABLE / BOOKING_FAILED) or not set up (503 NO_COURIER).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    DeliveryLocations:
+      description: The list (names only).
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                type: array
+                items:
+                  type: object
+                  required: [id, name]
+                  properties:
+                    id:
+                      type: integer
+                    name:
+                      type: string
+    DeliveryZoneResponse:
+      description: The zone.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                $ref: '#/components/schemas/DeliveryZone'
+    DeliveryRanking:
+      description: One row per shop or courier.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                type: object
+                required: [from, to, items]
+                properties:
+                  from:
+                    type: string
+                    format: date
+                  to:
+                    type: string
+                    format: date
+                  items:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/DeliveryMetrics'
+                        - type: object
+                          description: by-shop rows have shopId, shopName, shopSlug; by-provider rows providerId, providerCode, providerName.
+                          properties:
+                            shopId:
+                              type: string
+                              format: uuid
+                            shopName:
+                              type: string
+                            shopSlug:
+                              type: string
+                            providerId:
+                              type: string
+                              format: uuid
+                            providerCode:
+                              $ref: '#/components/schemas/CourierCode'
+                            providerName:
+                              type: string
+    AdminShipmentDetailResponse:
+      description: The shipment (admin view).
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                $ref: '#/components/schemas/AdminShipmentDetail'
+  schemas:
+    CourierCode:
+      type: string
+      enum: [PATHAO, STEADFAST, REDX, PAPERFLY, ECOURIER]
+    ShopDeliveryMode:
+      type: string
+      enum: [OWN, PLATFORM_COURIER]
+    DeliveryZoneCode:
+      type: string
+      enum: [INSIDE_DHAKA, DHAKA_SUBURB, OUTSIDE_DHAKA]
+    ShipmentStatus:
+      type: string
+      enum: [PENDING, BOOKED, PICKUP_ASSIGNED, PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, FAILED, RETURNING, RETURNED, CANCELLED]
+    CourierProvider:
+      type: object
+      required: [id, code, name, isActive, isDefault, sandbox, config, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          $ref: '#/components/schemas/CourierCode'
+        name:
+          type: string
+        isActive:
+          type: boolean
+        isDefault:
+          type: boolean
+        sandbox:
+          type: boolean
+        config:
+          type: object
+          nullable: true
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    DeliveryZone:
+      type: object
+      required: [id, name, code, customerFee, etaText, isActive, courierCityIds, courierZoneIds]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        code:
+          $ref: '#/components/schemas/DeliveryZoneCode'
+        customerFee:
+          type: integer
+        etaText:
+          type: string
+        isActive:
+          type: boolean
+        courierCityIds:
+          type: array
+          items:
+            type: integer
+        courierZoneIds:
+          type: array
+          items:
+            type: integer
+    DeliveryZoneInput:
+      type: object
+      additionalProperties: false
+      required: [code, name, customerFee, etaText]
+      properties:
+        code:
+          $ref: '#/components/schemas/DeliveryZoneCode'
+        name:
+          type: string
+        customerFee:
+          type: integer
+          minimum: 0
+        etaText:
+          type: string
+        isActive:
+          type: boolean
+          default: true
+        courierCityIds:
+          type: array
+          items:
+            type: integer
+        courierZoneIds:
+          type: array
+          items:
+            type: integer
+    DeliveryMetrics:
+      type: object
+      required: [shipments, delivered, failed, returned, successRate, avgPickupMinutes, avgDeliveryMinutes, customerFees, courierCost, margin, codOwedByCourier, owedToShops]
+      properties:
+        shipments:
+          type: integer
+        delivered:
+          type: integer
+        failed:
+          type: integer
+        returned:
+          type: integer
+        successRate:
+          type: number
+          nullable: true
+        avgPickupMinutes:
+          type: integer
+          nullable: true
+          description: booked -> picked up
+        avgDeliveryMinutes:
+          type: integer
+          nullable: true
+          description: picked up -> delivered
+        customerFees:
+          type: integer
+        courierCost:
+          type: integer
+        margin:
+          type: integer
+        codOwedByCourier:
+          type: integer
+          description: Cash collected on delivered orders that the courier has not paid us yet.
+        owedToShops:
+          type: integer
+          description: Delivered orders not paid to the shop yet (order total minus the delivery fee).
+    TimelineEntry:
+      type: object
+      required: [status, at]
+      properties:
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        at:
+          type: string
+          format: date-time
+    CustomerShipment:
+      type: object
+      nullable: true
+      description: Courier orders only (else null). courier and trackingCode stay null until PICKED_UP.
+      required: [status, timeline, courier, trackingCode]
+      properties:
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        timeline:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineEntry'
+        courier:
+          type: object
+          nullable: true
+          required: [name]
+          properties:
+            name:
+              type: string
+        trackingCode:
+          type: string
+          nullable: true
+    ShopShipment:
+      type: object
+      nullable: true
+      description: Courier orders only (else null). No courier cost or margin.
+      required: [id, status, timeline, courier, trackingCode, codAmount, shopPaid, shopPaidAt, bookingFailed]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        timeline:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineEntry'
+        courier:
+          type: object
+          nullable: true
+          properties:
+            name:
+              type: string
+        trackingCode:
+          type: string
+          nullable: true
+        codAmount:
+          type: integer
+        shopPaid:
+          type: boolean
+        shopPaidAt:
+          type: string
+          format: date-time
+          nullable: true
+        bookingFailed:
+          type: boolean
+          description: Three booking tries failed; our team was told.
+    AdminShipment:
+      type: object
+      required: [id, subOrderId, orderNumber, shop, provider, consignmentId, trackingCode, status, statusAt, zoneCode, customerFee, courierCost, margin, codAmount, codCollected, codRemittedAt, shopPaidAt, bookedAt, pickedUpAt, deliveredAt, failReason, bookingAttempts, nextAttemptAt, lastError, ageHours, stuck, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        subOrderId:
+          type: string
+          format: uuid
+        orderNumber:
+          type: string
+          nullable: true
+        shop:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            slug:
+              type: string
+        provider:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+              format: uuid
+            code:
+              $ref: '#/components/schemas/CourierCode'
+            name:
+              type: string
+        consignmentId:
+          type: string
+          nullable: true
+        trackingCode:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        statusAt:
+          type: string
+          format: date-time
+        zoneCode:
+          $ref: '#/components/schemas/DeliveryZoneCode'
+        customerFee:
+          type: integer
+        courierCost:
+          type: integer
+          nullable: true
+        margin:
+          type: integer
+          nullable: true
+          description: customerFee - courierCost
+        codAmount:
+          type: integer
+        codCollected:
+          type: boolean
+        codRemittedAt:
+          type: string
+          format: date-time
+          nullable: true
+        shopPaidAt:
+          type: string
+          format: date-time
+          nullable: true
+        bookedAt:
+          type: string
+          format: date-time
+          nullable: true
+        pickedUpAt:
+          type: string
+          format: date-time
+          nullable: true
+        deliveredAt:
+          type: string
+          format: date-time
+          nullable: true
+        failReason:
+          type: string
+          nullable: true
+        bookingAttempts:
+          type: integer
+        nextAttemptAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastError:
+          type: string
+          nullable: true
+        ageHours:
+          type: integer
+        stuck:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    AdminShipmentDetail:
+      allOf:
+        - $ref: '#/components/schemas/AdminShipment'
+        - type: object
+          required: [orderStatus, recipient, events]
+          properties:
+            orderStatus:
+              type: string
+              nullable: true
+            recipient:
+              type: object
+              additionalProperties: true
+            events:
+              type: array
+              items:
+                type: object
+                required: [id, status, rawStatus, note, source, at, raw]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  status:
+                    allOf:
+                      - $ref: '#/components/schemas/ShipmentStatus'
+                    nullable: true
+                  rawStatus:
+                    type: string
+                  note:
+                    type: string
+                    nullable: true
+                  source:
+                    type: string
+                    enum: [WEBHOOK, POLL, SYSTEM, ADMIN]
+                  at:
+                    type: string
+                    format: date-time
+                  raw:
+                    type: object
+                    nullable: true
+                    additionalProperties: true
+    AddressInput:
+      type: object
+      required: [line1, phone]
+      properties:
+        label:
+          type: string
+          maxLength: 40
+        line1:
+          type: string
+          minLength: 5
+          maxLength: 200
+        area:
+          type: string
+          maxLength: 100
+        city:
+          type: string
+          minLength: 2
+          maxLength: 60
+          default: Dhaka
+        phone:
+          type: string
+          pattern: '^01\d{9}$'
+        isDefault:
+          type: boolean
+          default: false
+        courierCityId:
+          type: integer
+        courierZoneId:
+          type: integer
+        courierAreaId:
+          type: integer
+    Address:
+      type: object
+      required: [id, label, line1, area, city, phone, isDefault, courierCityId, courierCityName, courierZoneId, courierZoneName, courierAreaId, courierAreaName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          nullable: true
+        line1:
+          type: string
+        area:
+          type: string
+          nullable: true
+        city:
+          type: string
+        phone:
+          type: string
+        isDefault:
+          type: boolean
+        courierCityId:
+          type: integer
+          nullable: true
+        courierCityName:
+          type: string
+          nullable: true
+        courierZoneId:
+          type: integer
+          nullable: true
+        courierZoneName:
+          type: string
+          nullable: true
+        courierAreaId:
+          type: integer
+          nullable: true
+        courierAreaName:
+          type: string
+          nullable: true
+    CustomerOrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/CustomerOrder'
+        - $ref: '#/components/schemas/OrderStatusTimeline'
+        - type: object
+          required: [shipment]
+          properties:
+            shipment:
+              $ref: '#/components/schemas/CustomerShipment'
+    ShopOrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/Order'
+        - $ref: '#/components/schemas/OrderStatusTimeline'
+        - type: object
+          required: [shipment]
+          properties:
+            shipment:
+              $ref: '#/components/schemas/ShopShipment'

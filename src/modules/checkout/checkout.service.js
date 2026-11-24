@@ -9,6 +9,9 @@ import { activeDeals, effectivePrice } from '../../lib/deals.js';
 import { redeemCoupon } from '../promotions/promotions.service.js';
 import { balanceOf, creditCap } from '../referrals/referrals.service.js';
 import { RESERVATION_HOURS, RESERVATION_CONFIRM_MINUTES, MAX_ACTIVE_RESERVATIONS } from '../../config/limits.js';
+import { zoneFor } from '../delivery/delivery.service.js';
+import { createShipmentInTx } from '../delivery/shipments.service.js';
+import { shipmentInclude, forCustomer } from '../delivery/shipments.present.js';
 
 // a reservation counts against the limit until it is completed or cancelled
 const OPEN_STATUSES = ['PLACED', 'CONFIRMED', 'READY_FOR_PICKUP'];
@@ -22,7 +25,7 @@ export const reservationTimes = (o) =>
       }
     : { reservedUntil: null, confirmBy: null };
 
-const DELIVERY_FEE = 60; // taka, charged once per shop that delivers
+const DELIVERY_FEE = 60; // taka, charged once per shop that delivers itself (OWN); courier orders: the zone's fee
 
 const newOrderNumber = () => {
   const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -44,6 +47,7 @@ const orderInclude = {
     },
   },
   items: { include: { listing: { select: { product: { select: { id: true, slug: true } } } } } },
+  shipment: { include: shipmentInclude },
 };
 
 const formatOrder = (o) => ({
@@ -64,6 +68,8 @@ const formatOrder = (o) => ({
   createdAt: o.createdAt,
   ...reservationTimes(o),
   shop: o.shop,
+  // courier orders only (else null): status and timeline; courier name and tracking code from pickup on
+  shipment: forCustomer(o.shipment),
   items: o.items.map((i) => ({
     id: i.id,
     productId: i.listing.product.id,
@@ -96,7 +102,7 @@ async function placeOrdersInTransaction(userId, { shops: choices, useCredit = fa
                 include: {
                   product: { select: { title: true, isActive: true, moderationStatus: true } },
                   shop: {
-                    select: { id: true, name: true, isActive: true, supportsDelivery: true, supportsPickup: true },
+                    select: { id: true, name: true, isActive: true, supportsDelivery: true, supportsPickup: true, deliveryMode: true, courierStoreId: true },
                   },
                 },
               },
@@ -113,6 +119,7 @@ async function placeOrdersInTransaction(userId, { shops: choices, useCredit = fa
           if (!c.addressId) continue;
           const saved = await tx.address.findFirst({ where: { id: c.addressId, userId } });
           if (!saved) throw new AppError(400, 'Delivery address not found');
+          c.saved = saved;
           c.deliveryAddress = `${saved.line1}${saved.area ? `, ${saved.area}` : ''}, ${saved.city}. Phone: ${saved.phone}`;
         }
 
@@ -178,6 +185,15 @@ async function placeOrdersInTransaction(userId, { shops: choices, useCredit = fa
         if (c.deliveryMethod === 'VENDOR_DELIVERY') {
           if (!shop.supportsDelivery) throw new AppError(400, `${shop.name} does not offer delivery`);
           if (!c.deliveryAddress) throw new AppError(400, `A delivery address is required for ${shop.name}`);
+          if (shop.deliveryMode === 'PLATFORM_COURIER') {
+            // courier delivery: a saved address with a delivery area; the fee comes from its zone
+            if (!shop.courierStoreId) throw new AppError(400, `${shop.name} does not offer delivery right now`, { code: 'DELIVERY_UNAVAILABLE' });
+            if (!c.saved?.courierAreaId) {
+              throw new AppError(400, 'Choose a saved address with a delivery area (city, zone and area)', { code: 'ADDRESS_NEEDS_AREA' });
+            }
+            c.zone = await zoneFor(tx, c.saved);
+            if (!c.zone) throw new AppError(400, 'Delivery to this area is not available right now', { code: 'AREA_UNAVAILABLE' });
+          }
         }
         const pickup = c.deliveryMethod === 'STORE_PICKUP' || c.deliveryMethod === 'RESERVE_PICKUP';
         if (pickup && !shop.supportsPickup) {
@@ -260,7 +276,7 @@ async function placeOrdersInTransaction(userId, { shops: choices, useCredit = fa
       for (const c of choices) {
         const { lines } = byShop.get(c.shopId);
         const subtotal = lines.reduce((sum, l) => sum + l.unitPrice * l.quantity, 0);
-        const deliveryFee = c.deliveryMethod === 'VENDOR_DELIVERY' ? DELIVERY_FEE : 0;
+        const deliveryFee = c.deliveryMethod !== 'VENDOR_DELIVERY' ? 0 : c.zone ? c.zone.customerFee : DELIVERY_FEE;
         // a coupon of THIS shop lowers the items' subtotal (never the delivery fee); computed here
         const coupon = c.couponCode ? await redeemCoupon(tx, userId, c.shopId, c.couponCode, subtotal) : null;
         const discount = coupon?.discount ?? 0;
@@ -306,6 +322,23 @@ async function placeOrdersInTransaction(userId, { shops: choices, useCredit = fa
           },
           include: orderInclude,
         });
+        if (c.zone) {
+          const a = c.saved;
+          const buyer = await tx.user.findUnique({ where: { id: userId }, select: { name: true } });
+          const made = await createShipmentInTx(tx, {
+            order,
+            zone: c.zone,
+            recipient: {
+              name: buyer.name,
+              phone: a.phone,
+              address: [a.line1, a.area, a.courierAreaName, a.courierZoneName, a.courierCityName].filter(Boolean).join(', '),
+              cityId: a.courierCityId,
+              zoneId: a.courierZoneId,
+              areaId: a.courierAreaId,
+            },
+          });
+          order.shipment = await tx.shipment.findUnique({ where: { id: made.id }, include: shipmentInclude });
+        }
         if (coupon) {
           await tx.couponRedemption.create({
             data: { couponId: coupon.id, userId, subOrderId: order.id, discount },
