@@ -1,4 +1,4 @@
-# test-moderation.ps1
+﻿# test-moderation.ps1
 # Run from the project root while "npm run dev" is running in another terminal.
 $base = 'http://localhost:4000/api/v1'
 $script:pass = 0
@@ -120,22 +120,20 @@ $title = "Moderation Test Item $stamp"
 $r = Call 'POST' "/shops/$techId/products" $owner @{ title = $title; categoryId = $cat; listing = @{ price = 1500; stockQty = 5 } }
 Check 'shop creates a product' $r.status 201
 $np = $r.json.data.product; $nl = $r.json.data.listing
-Check 'it starts PENDING' $np.moderationStatus 'PENDING'
-Check 'not in the public list' @((Call 'GET' "/products?q=$([uri]::EscapeDataString($title))" $null $null).json.data).Count 0
-Check 'product page -> 404' (Call 'GET' "/products/$($np.slug)" $null $null).status 404
-Check 'not in the storefront' (@((Call 'GET' '/shops/techzone-electronics/products?limit=50' $null $null).json.data | Where-Object { $_.listingId -eq $nl.id }).Count) 0
-Check 'cannot be put in a cart' (Call 'POST' '/cart/items' $cust @{ listingId = $nl.id; quantity = 1 }).status 404
-Check 'cannot be featured yet' (Call 'POST' '/admin/featured' $admin @{ kind = 'PRODUCT'; targetId = $np.id }).status 404
-Check 'customer cannot see the queue' (Call 'GET' '/admin/moderation/products' $cust $null).status 403
-$q = @((Call 'GET' '/admin/moderation/products?limit=50' $admin $null).json.data)
-Check 'admin queue has it' (@($q | Where-Object { $_.id -eq $np.id }).Count) 1
-Check 'the queue shows the shop' (@($q | Where-Object { $_.id -eq $np.id })[0].shop.slug) 'techzone-electronics'
+Check 'it is public at once (APPROVED)' $np.moderationStatus 'APPROVED'
+Check 'in the public list' @((Call 'GET' "/products?q=$([uri]::EscapeDataString($title))" $null $null).json.data).Count 1
+Check 'product page -> 200' (Call 'GET' "/products/$($np.slug)" $null $null).status 200
+Check 'in the storefront' (@((Call 'GET' '/shops/techzone-electronics/products?limit=50' $null $null).json.data | Where-Object { $_.listingId -eq $nl.id }).Count) 1
+Check 'customer cannot see the review list' (Call 'GET' '/admin/moderation/products' $cust $null).status 403
+$q = @((Call 'GET' '/admin/moderation/products?status=APPROVED&limit=50' $admin $null).json.data)
+Check 'admin sees it first in the approved list (newest first)' $q[0].id $np.id
+Check 'the list shows the shop' $q[0].shop.slug 'techzone-electronics'
 Check 'reject needs a reason -> 400' (Call 'POST' "/admin/moderation/products/$($np.id)/reject" $admin @{ reason = '' }).status 400
 $r = Call 'POST' "/admin/moderation/products/$($np.id)/reject" $admin @{ reason = 'Please add a clear title and the brand' }
 Check 'rejected' $r.json.data.moderationStatus 'REJECTED'
 $n = @((Call 'GET' '/notifications?limit=20' $owner $null).json.data | Where-Object { $_.type -eq 'PRODUCT_MODERATION' -and $_.data.productId -eq $np.id })
 Check 'shop notified of the rejection' $n.Count 1
-Check 'still hidden after rejection' (Call 'GET' "/products/$($np.slug)" $null $null).status 404
+Check 'hidden after rejection' (Call 'GET' "/products/$($np.slug)" $null $null).status 404
 $r = Call 'PATCH' "/shops/$techId/products/$($np.id)" $owner @{ description = 'Now with a clear description.' }
 Check 'editing a rejected product resubmits it' $r.json.data.moderationStatus 'PENDING'
 Check 'the note is cleared' $r.json.data.moderationNote $null

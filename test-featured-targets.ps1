@@ -105,7 +105,7 @@ $np = Call 'POST' "/shops/$techId/products" $owner @{ title = "Featuredcheck $(G
 Need ($np.status -eq 201) 'creating a product to delete'
 $goneId = $np.json.data.product.id
 $script:ids += @($goneId, $np.json.data.listing.id)
-Need ((Call 'POST' "/admin/moderation/products/$goneId/approve" $admin $null).status -eq 200) 'approving it'
+Need ((Call 'POST' "/admin/moderation/products/$goneId/approve" $admin $null).status -in 200, 409) 'approving it'
 
 # ---- 1. a live SHOP slot ----
 $s1 = Feature 'SHOP' $shopLive.id $null

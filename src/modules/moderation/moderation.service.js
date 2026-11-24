@@ -210,7 +210,8 @@ export async function listModeration({ status, page, limit }) {
     prisma.product.count({ where }),
     prisma.product.findMany({
       where,
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], // oldest waiting first
+      // waiting items oldest first; approved ones newest first so the admin can look over fresh products
+      orderBy: status === 'APPROVED' ? [{ createdAt: 'desc' }, { id: 'desc' }] : [{ createdAt: 'asc' }, { id: 'asc' }],
       skip: (page - 1) * limit,
       take: limit,
       include: {

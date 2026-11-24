@@ -79,7 +79,7 @@ $p = @{}
 foreach ($n in 'A', 'B', 'C', 'D') {
     $r = Call 'POST' "/shops/$techId/products" $owner @{ title = "$tag Item $n"; categoryId = $cat; listing = @{ price = 2000; stockQty = 10 } }
     Need ($r.status -eq 201) "creating product $n"
-    Need ((Call 'POST' "/admin/moderation/products/$($r.json.data.product.id)/approve" $admin $null).status -eq 200) "approving product $n"
+    Need ((Call 'POST' "/admin/moderation/products/$($r.json.data.product.id)/approve" $admin $null).status -in 200, 409) "approving product $n"
     $p[$n] = @{ id = $r.json.data.product.id; lid = $r.json.data.listing.id }
     Start-Sleep -Milliseconds 50
 }

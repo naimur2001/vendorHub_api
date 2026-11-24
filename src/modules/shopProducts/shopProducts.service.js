@@ -31,7 +31,7 @@ const presentProduct = (p) => ({
   createdByShopId: p.createdByShopId,
   lockedAt: p.lockedAt,
   isActive: p.isActive,
-  // PENDING until an admin approves it; only APPROVED products are public. moderationNote = the rejection reason.
+  // New products are APPROVED (public) at once; an admin can REJECT one later. Only APPROVED products are public. moderationNote = the rejection reason.
   moderationStatus: p.moderationStatus,
   moderationNote: p.moderationNote,
   createdAt: p.createdAt,
@@ -129,7 +129,7 @@ export async function createShopProduct(user, shopId, input) {
         images: [],
         source: 'SHOP',
         createdByShopId: shopId,
-        moderationStatus: 'PENDING', // not public until an admin approves it
+        moderationStatus: 'APPROVED', // public at once; an admin reviews it afterwards and can reject it
       },
       include: productInclude,
     });
