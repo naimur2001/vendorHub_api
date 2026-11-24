@@ -1,7 +1,8 @@
 // Test helper for test-product-deletion.ps1 (never used by the app).
 //   sweep [--hours-ahead=N]          runs the deletion job once, as if it were N hours from now
 //   status <requestId>               prints the request's status and outcome, and whether the product row exists
-//   listing <listingId>              prints whether the listing exists and how many cart / wishlist rows point at it
+//   add-listing <shopId> <productId> adds a listing directly (another shop listing it during the 12 hours)
+//   listing <listingId>             prints whether the listing exists and how many cart / wishlist rows point at it
 //   cleanup <productId...>          deletes the deletion requests of these products (the rest of the
 //                                    test data is removed by scripts/product-sorts-test-helper.mjs cleanup)
 import { prisma } from '../src/lib/prisma.js';
@@ -16,7 +17,13 @@ if (command === 'sweep') {
 } else if (command === 'status') {
   const r = await prisma.productDeletionRequest.findUnique({ where: { id: args[0] } });
   const product = r ? await prisma.product.findUnique({ where: { id: r.productId }, select: { isActive: true } }) : null;
-  out = { status: r?.status ?? null, outcome: r?.outcome ?? null, productExists: !!product, productActive: product?.isActive ?? null };
+  out = { status: r?.status ?? null, outcome: r?.outcome ?? null, scope: r?.scope ?? null, productExists: !!product, productActive: product?.isActive ?? null };
+} else if (command === 'add-listing') {
+  // a listing added straight in the database (the API refuses a hidden product): "another shop
+  // listed it during the 12 hours"
+  const [shopId, productId] = args;
+  const l = await prisma.shopListing.create({ data: { shopId, productId, price: 1300, stockQty: 2 } });
+  out = { listingId: l.id };
 } else if (command === 'listing') {
   const listingId = args[0];
   out = {

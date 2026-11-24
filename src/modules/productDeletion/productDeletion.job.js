@@ -10,7 +10,7 @@ export async function runProductDeletionSweep() {
   running = true;
   try {
     const r = await sweepDeletionRequests();
-    if (r.deleted || r.deactivated || r.failed) logger.info(r, 'product deletion requests carried out');
+    if (r.deleted || r.listingsDeleted || r.deactivated || r.failed) logger.info(r, 'product deletion requests carried out');
   } catch (err) {
     logger.error(err, 'product deletion sweep failed');
   } finally {

@@ -138,7 +138,7 @@ Check 'P1 is public before' (Public $p1) 200
 $r = RequestDel $p1 $owner @{ reason = 'We no longer sell this' }
 Check 'request -> 201' $r.status 201
 $req1 = $r.json.data
-Check 'request is PENDING, outcome null' "$($req1.status)/$($req1.outcome)" 'PENDING/'
+Check 'request is PENDING, outcome null, scope PRODUCT' "$($req1.status)/$($req1.outcome)/$($req1.scope)" 'PENDING//PRODUCT'
 Check 'request keeps the reason' $req1.reason 'We no longer sell this'
 $hours = ([DateTime]$req1.autoDeleteAt - [DateTime]$req1.createdAt).TotalHours
 Check 'autoDeleteAt = createdAt + 12 hours' ([Math]::Round($hours, 3)) 12
@@ -237,16 +237,77 @@ Check 'the order item keeps its title' (@($ord.json.data.items | Where-Object { 
 $r = Call 'DELETE' "/admin/products/$($p4.id)/permanent" $admin $null
 Check 'admin permanent delete of P4 -> 200 DEACTIVATED' "$($r.status)/$($r.json.data.outcome)" '200/DEACTIVATED'
 
-# ---- 6. a shared product returns 409 ----
-$l = Call 'POST' "/shops/$otherShopId/listings" $staff @{ productId = $p5.id; price = 1400; stockQty = 2 }
-Need ($l.status -eq 201) 'another shop listing P5'
+# ---- 6. a shared product: only this shop's listing goes (LISTING scope) ----
+function OtherList($p, $price) {
+    $l = Call 'POST' "/shops/$otherShopId/listings" $staff @{ productId = $p.id; price = $price; stockQty = 2 }
+    Need ($l.status -eq 201) "the other shop listing $($p.slug)"
+    return $l.json.data.id
+}
+function PublicListingIds($p) { return @((Call 'GET' "/products/$($p.slug)/listings" $null $null).json.data | ForEach-Object { $_.id }) }
+$p5other = OtherList $p5 1400
 $r = RequestDel $p5 $owner $null
-Check 'shared product -> 409' $r.status 409
-Check 'shared product: code SHARED_PRODUCT' $script:lastCode 'SHARED_PRODUCT'
+Check 'shared product -> 201 (no longer 409)' $r.status 201
+Check 'shared product: scope LISTING' $r.json.data.scope 'LISTING'
+$req5 = $r.json.data
 Check 'shared product stays public' (Public $p5) 200
+$ids = PublicListingIds $p5
+Check 'only our listing is hidden at once' "$($ids -contains $p5.lid)/$($ids -contains $p5other)" 'False/True'
+Check 'the shop list shows the scope' (@((Call 'GET' "/shops/$techId/deletion-requests" $owner $null).json.data | Where-Object { $_.id -eq $req5.id })[0].scope) 'LISTING'
+Check 'the admin list shows the scope' (@((Call 'GET' '/admin/deletion-requests?status=PENDING&limit=100' $admin $null).json.data | Where-Object { $_.id -eq $req5.id })[0].scope) 'LISTING'
+Helper sweep '--hours-ahead=13' | Out-Null
+$st = Helper status $req5.id
+Check 'after 12 hours: DONE / LISTING_DELETED, the product stays active' "$($st.status)/$($st.outcome)/$($st.productExists)/$($st.productActive)" 'DONE/LISTING_DELETED/True/True'
+Check 'our listing row is gone' (Helper listing $p5.lid).listing $false
+Check 'the other shop listing stays' ((PublicListingIds $p5) -contains $p5other) $true
+Check 'DONE notification carries outcome and scope' (@((Call 'GET' '/notifications?limit=50' $owner $null).json.data | Where-Object { $_.type -eq 'PRODUCT_DELETION_DONE' -and $_.data.requestId -eq $req5.id -and $_.data.outcome -eq 'LISTING_DELETED' -and $_.data.scope -eq 'LISTING' }).Count) 1
 $r = Call 'POST' "/shops/$otherShopId/products/$($p5.id)/deletion-request" $staff @{}
-Check 'the other shop (did not create it) -> 409' $r.status 409
-Check 'the other shop: code NOT_CREATED_BY_SHOP' $script:lastCode 'NOT_CREATED_BY_SHOP'
+Check 'a shop that did not create it -> 201 LISTING' "$($r.status)/$($r.json.data.scope)" '201/LISTING'
+Check 'a shop without a listing -> 404' (Call 'POST' "/shops/$techId/products/$($p5.id)/deletion-request" $owner @{}).status 404
+Need ((Call 'DELETE' "/shops/$otherShopId/deletion-requests/$($r.json.data.id)" $staff $null).status -eq 200) 'cancelling the other shop request'
+Check 'cancel shows the other shop listing again' ((PublicListingIds $p5) -contains $p5other) $true
+
+# ---- 6b. the last shop leaving a product it created deletes the product ----
+$p6 = NewProduct 'Lastshop'
+$p6other = OtherList $p6 1450
+$rOwn = RequestDel $p6 $owner $null
+Check 'P6 shared: the creator gets LISTING' "$($rOwn.status)/$($rOwn.json.data.scope)" '201/LISTING'
+$rOther = Call 'POST' "/shops/$otherShopId/products/$($p6.id)/deletion-request" $staff @{}
+Need ($rOther.status -eq 201) 'the other shop asking to leave P6'
+$a = Call 'POST' "/admin/deletion-requests/$($rOther.json.data.id)/approve" $admin $null
+Check 'the other shop leaves first: LISTING_DELETED, the product stays' "$($a.json.data.outcome)/$((Helper status $rOther.json.data.id).productExists)" 'LISTING_DELETED/True'
+$a = Call 'POST' "/admin/deletion-requests/$($rOwn.json.data.id)/approve" $admin $null
+Check 'the creator leaves last: the product is deleted (DELETED, scope LISTING)' "$($a.json.data.outcome)/$($a.json.data.scope)" 'DELETED/LISTING'
+Check 'P6 is gone' (Helper status $rOwn.json.data.id).productExists $false
+
+# ---- 6c. a listing with orders is only deactivated ----
+$p7 = NewProduct 'Listingorder'
+$p7other = OtherList $p7 1400
+Call 'DELETE' '/cart' $cust $null | Out-Null
+Need ((Call 'POST' '/cart/items' $cust @{ listingId = $p7other; quantity = 1 }).status -eq 200) 'adding the other shop P7 listing to the cart'
+$o7 = Call 'POST' '/checkout' $cust @{ shops = @(@{ shopId = $otherShopId; deliveryMethod = 'VENDOR_DELIVERY'; paymentMethod = 'CASH_ON_DELIVERY'; deliveryAddress = 'House 12, Road 5, Dhanmondi, Dhaka' }) }
+Need ($o7.status -eq 201) 'ordering from the other shop'
+$r = Call 'POST' "/shops/$otherShopId/products/$($p7.id)/deletion-request" $staff @{}
+Need ($r.status -eq 201) 'the other shop asking to leave P7'
+Helper sweep '--hours-ahead=13' | Out-Null
+$st = Helper status $r.json.data.id
+Check 'listing with orders: DONE / DEACTIVATED, product active' "$($st.status)/$($st.outcome)/$($st.productActive)" 'DONE/DEACTIVATED/True'
+Check 'the listing row stays' (Helper listing $p7other).listing $true
+Check 'the order is still there' (Call 'GET' "/orders/$($o7.json.data.orders[0].id)" $cust $null).status 200
+Check 'P7 stays public with the creator listing' ((PublicListingIds $p7) -contains $p7.lid) $true
+
+# ---- 6d. another shop lists it during the 12 hours: PRODUCT becomes LISTING ----
+$p8 = NewProduct 'Latecomer'
+$r = RequestDel $p8 $owner $null
+Check 'P8 alone: scope PRODUCT' $r.json.data.scope 'PRODUCT'
+$req8 = $r.json.data
+Check 'P8 hidden' (Public $p8) 404
+$late = (Helper add-listing $otherShopId $p8.id).listingId
+Helper sweep '--hours-ahead=13' | Out-Null
+$st = Helper status $req8.id
+Check 'P8: DONE / LISTING_DELETED, scope now LISTING' "$($st.status)/$($st.outcome)/$($st.scope)" 'DONE/LISTING_DELETED/LISTING'
+Check 'P8 stays and is visible again' "$($st.productExists)/$($st.productActive)/$(Public $p8)" 'True/True/200'
+$ids = PublicListingIds $p8
+Check 'only the late shop listing is left' "$($ids -contains $p8.lid)/$($ids -contains $late)" 'False/True'
 
 # ---- 7. admin deletes at once ----
 $r = Call 'DELETE' "/admin/products/$($p5.id)/permanent" $admin $null

@@ -1290,18 +1290,26 @@ enum ProductDeletionStatus {
 
 enum ProductDeletionOutcome {
   DELETED // hard deleted (no orders)
-  DEACTIVATED // the product has orders: only isActive = false, order history stays
+  DEACTIVATED // the product (or, for LISTING scope, the listing) has orders: only isActive = false, order history stays
+  LISTING_DELETED // LISTING scope: only this shop's listing was deleted; the product stays for the other shops
+}
+
+enum ProductDeletionScope {
+  PRODUCT // the shop created it, it is not locked, no other shop lists it: the whole product goes
+  LISTING // every other case: only this shop's listing goes
 }
 
 // A shop owner asks to delete a product their shop created. The product is hidden at once
 // (isActive = false) and deleted at autoDeleteAt (createdAt + 12 h) unless an admin rejects it first.
 // productId has no foreign key on purpose: a DONE request outlives the deleted product (productTitle
-// keeps its name). At most one PENDING request per product (partial unique index in the migration).
+// keeps its name). At most one PENDING request per product and shop (partial unique index in the migration).
 model ProductDeletionRequest {
   id               String                  @id @default(uuid())
   productId        String
   productTitle     String // snapshot
   productWasActive Boolean // restored on reject / cancel
+  listingWasActive Boolean                 @default(true) // this shop's listing, restored on reject / cancel
+  scope            ProductDeletionScope    @default(PRODUCT) // decided at create; PRODUCT falls back to LISTING if another shop lists it by then
   shopId           String
   requestedById    String
   reason           String? // max 500
@@ -1317,4 +1325,5 @@ model ProductDeletionRequest {
   @@index([status, autoDeleteAt])
   @@index([shopId, createdAt])
   @@index([productId])
+  @@index([shopId, productId])
 }
