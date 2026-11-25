@@ -1,0 +1,234 @@
+# Delivery profit rules (tag "Delivery", ADMIN only, audit-logged): a target profit per shipment for
+# analysis. They never change what the customer pays (the admin zone fee) or the real margin
+# (customerFee - courierCost). Reports and shipment views always use the CURRENT rules, so old
+# shipments are recalculated too. The most specific active rule wins: zone + courier > zone > courier > all.
+paths:
+  /api/v1/admin/delivery/profit-rules:
+    get:
+      tags: [Delivery]
+      operationId: adminListProfitRules
+      summary: Delivery profit rules, active first (ADMIN)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The rules.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DeliveryProfitRule'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Delivery]
+      operationId: adminCreateProfitRule
+      summary: Add a profit rule (ADMIN, audited)
+      description: >-
+        FIXED value = whole taka 0-5000 (no percentOf). PERCENT value = 0-100 with at most 2 decimals and
+        percentOf CUSTOMER_FEE or COURIER_COST. 400 BAD_RULE, ZONE_NOT_FOUND, COURIER_NOT_FOUND; 409
+        RULE_SCOPE_TAKEN when another active rule has the same zoneId and providerId.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeliveryProfitRuleInput'
+      responses:
+        '201':
+          $ref: '#/components/responses/DeliveryProfitRuleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/delivery/profit-rules/{id}:
+    parameters:
+      - $ref: '#/components/parameters/DeliveryUuid'
+    patch:
+      tags: [Delivery]
+      operationId: adminUpdateProfitRule
+      summary: Change, switch off or on a profit rule (ADMIN, audited)
+      description: Any field of the create body. The merged rule is checked again (400 BAD_RULE; 409 RULE_SCOPE_TAKEN when switched on in a taken scope).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 60
+                type:
+                  $ref: '#/components/schemas/ProfitRuleType'
+                value:
+                  type: number
+                percentOf:
+                  allOf:
+                    - $ref: '#/components/schemas/ProfitRuleBase'
+                  nullable: true
+                zoneId:
+                  type: string
+                  format: uuid
+                  nullable: true
+                providerId:
+                  type: string
+                  format: uuid
+                  nullable: true
+                isActive:
+                  type: boolean
+      responses:
+        '200':
+          $ref: '#/components/responses/DeliveryProfitRuleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [Delivery]
+      operationId: adminDeleteProfitRule
+      summary: Delete a profit rule (ADMIN, audited)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  responses:
+    DeliveryProfitRuleResponse:
+      description: The rule.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                $ref: '#/components/schemas/DeliveryProfitRule'
+  schemas:
+    ProfitRuleType:
+      type: string
+      enum: [FIXED, PERCENT]
+    ProfitRuleBase:
+      type: string
+      enum: [CUSTOMER_FEE, COURIER_COST]
+    DeliveryProfitRuleInput:
+      type: object
+      additionalProperties: false
+      required: [name, type, value]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+        type:
+          $ref: '#/components/schemas/ProfitRuleType'
+        value:
+          type: number
+          minimum: 0
+          maximum: 5000
+          description: FIXED = whole taka 0-5000; PERCENT = 0-100, at most 2 decimals.
+        percentOf:
+          allOf:
+            - $ref: '#/components/schemas/ProfitRuleBase'
+          nullable: true
+          description: PERCENT only.
+        zoneId:
+          type: string
+          format: uuid
+          nullable: true
+          description: A delivery zone id; null or left out = all zones.
+        providerId:
+          type: string
+          format: uuid
+          nullable: true
+          description: A courier id; null or left out = all couriers.
+        isActive:
+          type: boolean
+          default: true
+    DeliveryProfitRule:
+      type: object
+      required: [id, name, type, value, percentOf, zoneId, zoneCode, zoneName, providerId, providerName, isActive, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/ProfitRuleType'
+        value:
+          type: number
+        percentOf:
+          allOf:
+            - $ref: '#/components/schemas/ProfitRuleBase'
+          nullable: true
+        zoneId:
+          type: string
+          format: uuid
+          nullable: true
+        zoneCode:
+          allOf:
+            - $ref: '#/components/schemas/DeliveryZoneCode'
+          nullable: true
+        zoneName:
+          type: string
+          nullable: true
+          description: null = all zones.
+        providerId:
+          type: string
+          format: uuid
+          nullable: true
+        providerName:
+          type: string
+          nullable: true
+          description: null = all couriers.
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time

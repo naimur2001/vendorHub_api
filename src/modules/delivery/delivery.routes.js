@@ -14,10 +14,13 @@ import {
   providerUpdateSchema,
   zoneCreateSchema,
   zoneUpdateSchema,
+  profitRuleCreateSchema,
+  profitRuleUpdateSchema,
 } from './delivery.schema.js';
 import * as d from './delivery.service.js';
 import * as sh from './shipments.service.js';
 import * as rep from './reports.service.js';
+import * as pr from './profitRules.service.js';
 
 const router = Router();
 const adminOnly = [authenticate, requireRole('ADMIN')];
@@ -92,6 +95,16 @@ router.patch('/admin/delivery-zones/:id', ...adminOnly, uuids('id'), validate(zo
 router.delete('/admin/delivery-zones/:id', ...adminOnly, uuids('id'), async (req, res) => {
   await d.deleteZone(req.user, req.params.id);
   ok(res, { message: 'Delivery zone deleted' });
+});
+
+router.get('/admin/delivery/profit-rules', ...adminOnly, async (req, res) => ok(res, await pr.listRules()));
+router.post('/admin/delivery/profit-rules', ...adminOnly, validate(profitRuleCreateSchema), async (req, res) => ok(res, await pr.createRule(req.user, req.body), 201));
+router.patch('/admin/delivery/profit-rules/:id', ...adminOnly, uuids('id'), validate(profitRuleUpdateSchema), async (req, res) =>
+  ok(res, await pr.updateRule(req.user, req.params.id, req.body)),
+);
+router.delete('/admin/delivery/profit-rules/:id', ...adminOnly, uuids('id'), async (req, res) => {
+  await pr.deleteRule(req.user, req.params.id);
+  ok(res, { message: 'Profit rule deleted' });
 });
 
 router.get('/admin/delivery/summary', ...adminOnly, validateQuery(reportQuery), async (req, res) => ok(res, await rep.summary(req.validated)));

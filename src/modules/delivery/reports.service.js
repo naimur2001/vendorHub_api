@@ -4,6 +4,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
+import { RULE_JOIN, PROFIT_METRICS, BELOW_TARGET } from './profitRules.service.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const dhakaToday = () => new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -35,7 +36,8 @@ const METRICS = Prisma.sql`
   COALESCE(sum(s."courierCost") FILTER (WHERE s.status = 'DELIVERED'), 0)::int AS "courierCost",
   COALESCE(sum(s.margin) FILTER (WHERE s.status = 'DELIVERED'), 0)::int AS "margin",
   COALESCE(sum(s."codAmount") FILTER (WHERE s.status = 'DELIVERED' AND s."codAmount" > 0 AND s."codRemittedAt" IS NULL), 0)::int AS "codOwedByCourier",
-  COALESCE(sum(o.total - o."deliveryFee") FILTER (WHERE s.status = 'DELIVERED' AND s."shopPaidAt" IS NULL), 0)::int AS "owedToShops"`;
+  COALESCE(sum(o.total - o."deliveryFee") FILTER (WHERE s.status = 'DELIVERED' AND s."shopPaidAt" IS NULL), 0)::int AS "owedToShops",
+  ${PROFIT_METRICS}`;
 
 const withRate = (r) => {
   const finished = r.delivered + r.failed + r.returned;
@@ -46,7 +48,7 @@ export async function summary(q) {
   const { fromDay, toDay, start, end } = range(q);
   const where = Prisma.sql`s."createdAt" >= ${start} AND s."createdAt" < ${end} AND ${filters(q)}`;
   const [[totals], byStatus] = await Promise.all([
-    prisma.$queryRaw`SELECT ${METRICS} FROM "Shipment" s JOIN "SubOrder" o ON o.id = s."subOrderId" WHERE ${where}`,
+    prisma.$queryRaw`SELECT ${METRICS}, ${BELOW_TARGET} FROM "Shipment" s JOIN "SubOrder" o ON o.id = s."subOrderId" ${RULE_JOIN} WHERE ${where}`,
     prisma.$queryRaw`SELECT s.status::text AS status, count(*)::int AS count FROM "Shipment" s WHERE ${where} GROUP BY s.status`,
   ]);
   return { from: fromDay, to: toDay, countsByStatus: Object.fromEntries(byStatus.map((r) => [r.status, r.count])), ...withRate(totals) };
@@ -56,8 +58,9 @@ export async function timeseries(q) {
   const { fromDay, toDay, start, end } = range(q);
   const f = filters(q);
   const [booked, delivered, failed, placed] = await Promise.all([
-    prisma.$queryRaw`SELECT ${local(Prisma.sql`s."bookedAt"`)}::date AS day, count(*)::int AS n
-      FROM "Shipment" s WHERE s."bookedAt" >= ${start} AND s."bookedAt" < ${end} AND ${f} GROUP BY 1`,
+    // the target profit counts on the day the shipment was booked (when the courier cost is known)
+    prisma.$queryRaw`SELECT ${local(Prisma.sql`s."bookedAt"`)}::date AS day, count(*)::int AS n, ${PROFIT_METRICS}
+      FROM "Shipment" s ${RULE_JOIN} WHERE s."bookedAt" >= ${start} AND s."bookedAt" < ${end} AND ${f} GROUP BY 1`,
     prisma.$queryRaw`SELECT ${local(Prisma.sql`s."deliveredAt"`)}::date AS day, count(*)::int AS n,
         COALESCE(sum(s."customerFee"), 0)::int AS fees, COALESCE(sum(s."courierCost"), 0)::int AS cost, COALESCE(sum(s.margin), 0)::int AS margin
       FROM "Shipment" s WHERE s.status = 'DELIVERED' AND s."deliveredAt" >= ${start} AND s."deliveredAt" < ${end} AND ${f} GROUP BY 1`,
@@ -84,6 +87,8 @@ export async function timeseries(q) {
       margin: d.get(day)?.margin ?? 0,
       ordersPlaced: p.get(day)?.n ?? 0,
       orderValue: p.get(day)?.value ?? 0,
+      targetProfit: b.get(day)?.targetProfit ?? null,
+      profitGap: b.get(day)?.profitGap ?? null,
     });
   }
   return { from: fromDay, to: toDay, interval: 'day', points };
@@ -95,10 +100,10 @@ async function grouped(q, by) {
   const rows =
     by === 'shop'
       ? await prisma.$queryRaw`SELECT sh.id AS "shopId", sh.name AS "shopName", sh.slug AS "shopSlug", ${METRICS}
-          FROM "Shipment" s JOIN "SubOrder" o ON o.id = s."subOrderId" JOIN "Shop" sh ON sh.id = s."shopId"
+          FROM "Shipment" s JOIN "SubOrder" o ON o.id = s."subOrderId" JOIN "Shop" sh ON sh.id = s."shopId" ${RULE_JOIN}
           WHERE ${where} GROUP BY sh.id, sh.name, sh.slug ORDER BY "delivered" DESC, "margin" DESC`
       : await prisma.$queryRaw`SELECT p.id AS "providerId", p.code::text AS "providerCode", p.name AS "providerName", ${METRICS}
-          FROM "Shipment" s JOIN "SubOrder" o ON o.id = s."subOrderId" JOIN "CourierProvider" p ON p.id = s."providerId"
+          FROM "Shipment" s JOIN "SubOrder" o ON o.id = s."subOrderId" JOIN "CourierProvider" p ON p.id = s."providerId" ${RULE_JOIN}
           WHERE ${where} GROUP BY p.id, p.code, p.name ORDER BY "delivered" DESC, "margin" DESC`;
   return { from: fromDay, to: toDay, items: rows.map(withRate) };
 }

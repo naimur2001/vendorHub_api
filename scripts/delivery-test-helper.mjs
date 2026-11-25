@@ -7,7 +7,7 @@
 //   store-steps <sinceIso> <shopId>                   the courier-store audit steps since then (created, checked, ...)
 //   default-mode                                      the deliveryMode a new shop gets (made and rolled back)
 //   cleanup <sinceIso> <file> <shopId...>             restores the saved delivery settings and deletes the audit
-//                                                     entries the test made (shops, shipments, delivery zones)
+//                                                     entries the test made (shops, shipments, delivery zones, profit rules)
 import { env } from '../src/config/env.js';
 import fs from 'node:fs';
 import { Prisma } from '@prisma/client';
@@ -73,7 +73,7 @@ if (command === 'webhook') {
   const a = await prisma.auditLog.deleteMany({
     where: {
       createdAt: { gte: since },
-      OR: [{ entityType: 'Shipment' }, { entityType: 'DeliveryZone' }, { entityType: 'Shop', entityId: { in: shopIds }, action: { startsWith: 'shop.' } }],
+      OR: [{ entityType: 'Shipment' }, { entityType: 'DeliveryZone' }, { entityType: 'DeliveryProfitRule' }, { entityType: 'Shop', entityId: { in: shopIds }, action: { startsWith: 'shop.' } }],
     },
   });
   out = { auditLogs: a.count, restored: saved.length };

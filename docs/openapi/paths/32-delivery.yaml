@@ -518,8 +518,11 @@ paths:
                     allOf:
                       - $ref: '#/components/schemas/DeliveryMetrics'
                       - type: object
-                        required: [from, to, countsByStatus]
+                        required: [from, to, countsByStatus, belowTarget]
                         properties:
+                          belowTarget:
+                            type: integer
+                            description: Priced shipments whose profitGap is below 0.
                           from:
                             type: string
                             format: date
@@ -581,7 +584,7 @@ paths:
                         type: array
                         items:
                           type: object
-                          required: [day, booked, delivered, failed, customerFees, courierCost, margin, ordersPlaced, orderValue]
+                          required: [day, booked, delivered, failed, customerFees, courierCost, margin, ordersPlaced, orderValue, targetProfit, profitGap]
                           properties:
                             day:
                               type: string
@@ -602,6 +605,14 @@ paths:
                               type: integer
                             orderValue:
                               type: integer
+                            targetProfit:
+                              type: integer
+                              nullable: true
+                              description: 'Shipments booked that day, with the current profit rules (null when none has a rule).'
+                            profitGap:
+                              type: integer
+                              nullable: true
+                              description: margin minus targetProfit (null when either is unknown).
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1096,7 +1107,7 @@ components:
             type: integer
     DeliveryMetrics:
       type: object
-      required: [shipments, delivered, failed, returned, successRate, avgPickupMinutes, avgDeliveryMinutes, customerFees, courierCost, margin, codOwedByCourier, owedToShops]
+      required: [shipments, delivered, failed, returned, successRate, avgPickupMinutes, avgDeliveryMinutes, customerFees, courierCost, margin, codOwedByCourier, owedToShops, targetProfit, profitGap]
       properties:
         shipments:
           type: integer
@@ -1129,6 +1140,14 @@ components:
         owedToShops:
           type: integer
           description: Delivered orders not paid to the shop yet (order total minus the delivery fee).
+        targetProfit:
+          type: integer
+          nullable: true
+          description: 'Sum over shipments the courier priced (courierCost known, cancelled left out), with the CURRENT profit rules; null when none has a rule.'
+        profitGap:
+          type: integer
+          nullable: true
+          description: margin minus targetProfit (null when either is unknown).
     TimelineEntry:
       type: object
       required: [status, at]
@@ -1197,7 +1216,7 @@ components:
           description: Three booking tries failed; our team was told.
     AdminShipment:
       type: object
-      required: [id, subOrderId, orderNumber, shop, provider, consignmentId, trackingCode, status, statusAt, zoneCode, customerFee, courierCost, margin, codAmount, codCollected, codRemittedAt, shopPaidAt, bookedAt, pickedUpAt, deliveredAt, failReason, bookingAttempts, nextAttemptAt, lastError, ageHours, stuck, createdAt]
+      required: [id, subOrderId, orderNumber, shop, provider, consignmentId, trackingCode, status, statusAt, zoneCode, customerFee, courierCost, margin, targetProfit, profitGap, ruleId, ruleName, codAmount, codCollected, codRemittedAt, shopPaidAt, bookedAt, pickedUpAt, deliveredAt, failReason, bookingAttempts, nextAttemptAt, lastError, ageHours, stuck, createdAt]
       properties:
         id:
           type: string
@@ -1252,6 +1271,21 @@ components:
           type: integer
           nullable: true
           description: customerFee - courierCost
+        targetProfit:
+          type: integer
+          nullable: true
+          description: The target of the current profit rule (FIXED value, or round(base x value / 100)); null without a rule or while the courier cost is unknown.
+        profitGap:
+          type: integer
+          nullable: true
+          description: margin minus targetProfit (null when either is unknown).
+        ruleId:
+          type: string
+          format: uuid
+          nullable: true
+        ruleName:
+          type: string
+          nullable: true
         codAmount:
           type: integer
         codCollected:

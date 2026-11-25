@@ -101,3 +101,27 @@ export const zoneUpdateSchema = z
   })
   .strict()
   .refine((o) => Object.keys(o).length > 0, { message: 'Provide at least one field to update' });
+
+// profit rules (value and percentOf are checked against the type in the service)
+const ruleFields = {
+  name: z.string().trim().min(2).max(60),
+  type: z.enum(['FIXED', 'PERCENT']),
+  value: z.number().min(0).max(5000),
+  percentOf: z.enum(['CUSTOMER_FEE', 'COURIER_COST']).nullable(),
+  zoneId: z.uuid().nullable(),
+  providerId: z.uuid().nullable(),
+  isActive: z.boolean(),
+};
+export const profitRuleCreateSchema = z
+  .object({
+    ...ruleFields,
+    percentOf: ruleFields.percentOf.optional(),
+    zoneId: ruleFields.zoneId.optional(),
+    providerId: ruleFields.providerId.optional(),
+    isActive: ruleFields.isActive.default(true),
+  })
+  .strict();
+export const profitRuleUpdateSchema = z
+  .object(Object.fromEntries(Object.entries(ruleFields).map(([k, v]) => [k, v.optional()])))
+  .strict()
+  .refine((o) => Object.keys(o).length > 0, { message: 'Provide at least one field to update' });

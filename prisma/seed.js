@@ -111,6 +111,7 @@ async function clean() {
   await prisma.$transaction([
         prisma.shipmentEvent.deleteMany(),
         prisma.shipment.deleteMany(),
+        prisma.deliveryProfitRule.deleteMany(),
         prisma.deliveryZone.deleteMany(),
         prisma.courierProvider.deleteMany(),
         prisma.productDeletionRequest.deleteMany(),

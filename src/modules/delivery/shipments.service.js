@@ -26,6 +26,7 @@ import {
   SHIPMENT_POLL_MINUTES,
 } from '../../config/limits.js';
 import { defaultProvider } from './delivery.service.js';
+import { activeRules, profitOf } from './profitRules.service.js';
 import { shopTeamIds } from '../notifications/notifications.events.js';
 import { cancelEffects, addEvent } from '../fulfilment/fulfilment.service.js';
 import { rewardReferralIfDue, notifyReferralReward } from '../referrals/referrals.service.js';
@@ -41,8 +42,8 @@ async function adminIds() {
 
 const stuck = (s, now = Date.now()) => ACTIVE.includes(s.status) && now - new Date(s.statusAt).getTime() > SHIPMENT_STUCK_HOURS * HOUR_MS;
 
-/** Admin: everything. */
-export function forAdmin(s) {
+/** Admin: everything, with the target profit of the current rules (pass activeRules()). */
+export function forAdmin(s, rules = []) {
   return {
     id: s.id,
     subOrderId: s.subOrderId,
@@ -57,6 +58,7 @@ export function forAdmin(s) {
     customerFee: s.customerFee,
     courierCost: s.courierCost,
     margin: s.margin,
+    ...profitOf(rules, s), // targetProfit, profitGap, ruleId, ruleName
     codAmount: s.codAmount,
     codCollected: s.codCollected,
     codRemittedAt: s.codRemittedAt,
@@ -79,13 +81,14 @@ const adminInclude = {
   subOrder: { select: { orderNumber: true, status: true, total: true, paymentMethod: true } },
   shop: { select: { id: true, name: true, slug: true } },
 };
-const adminDetail = (s) => ({
-  ...forAdmin(s),
+const adminDetail = (s, rules) => ({
+  ...forAdmin(s, rules),
   orderStatus: s.subOrder?.status ?? null,
   recipient: s.recipient,
   events: s.events.map((e) => ({ id: e.id, status: e.status, rawStatus: e.rawStatus, note: e.note, source: e.source, at: e.at, raw: e.raw })),
 });
 const loadAdmin = (id) => prisma.shipment.findUnique({ where: { id }, include: adminInclude });
+const adminView = async (id) => adminDetail(await loadAdmin(id), await activeRules());
 
 // ---------- checkout ----------
 
@@ -414,7 +417,7 @@ export async function cancelShipment(admin, id) {
     }
   }
   await adminAction(admin, id, 'cancelled', () => {}, { status: 'CANCELLED', statusAt: new Date(), nextAttemptAt: null }, { status: 'CANCELLED', rawStatus: 'admin_cancel' });
-  return adminDetail(await loadAdmin(id));
+  return adminView(id);
 }
 
 export async function rebookShipment(admin, id) {
@@ -432,7 +435,7 @@ export async function rebookShipment(admin, id) {
     { status: 'PENDING', rawStatus: 'admin_rebook' },
   );
   await bookShipment(id, { actorId: admin.id });
-  return adminDetail(await loadAdmin(id));
+  return adminView(id);
 }
 
 export async function markCodRemitted(admin, id) {
@@ -445,7 +448,7 @@ export async function markCodRemitted(admin, id) {
     },
     { codRemittedAt: new Date() },
   );
-  return adminDetail(await loadAdmin(id));
+  return adminView(id);
 }
 
 export async function markShopPaid(admin, id) {
@@ -458,13 +461,13 @@ export async function markShopPaid(admin, id) {
     },
     { shopPaidAt: new Date() },
   );
-  return adminDetail(await loadAdmin(id));
+  return adminView(id);
 }
 
 export async function getShipmentAdmin(id) {
   const s = await loadAdmin(id);
   if (!s) throw new AppError(404, 'Shipment not found');
-  return adminDetail(s);
+  return adminDetail(s, await activeRules());
 }
 
 const dhakaStart = (day) => new Date(`${day}T00:00:00+06:00`);
@@ -479,9 +482,10 @@ export async function listShipmentsAdmin({ status, providerId, shopId, q, stuck:
   if (q) and.push({ OR: [{ subOrder: { orderNumber: { contains: q, mode: 'insensitive' } } }, { trackingCode: q }, { consignmentId: q }] });
   if (onlyStuck) and.push({ status: { in: ACTIVE }, statusAt: { lt: new Date(Date.now() - SHIPMENT_STUCK_HOURS * HOUR_MS) } });
   const where = and.length ? { AND: and } : {};
-  const [total, rows] = await Promise.all([
+  const [total, rows, rules] = await Promise.all([
     prisma.shipment.count({ where }),
     prisma.shipment.findMany({ where, include: adminInclude, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+    activeRules(),
   ]);
-  return { items: rows.map(forAdmin), pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+  return { items: rows.map((r) => forAdmin(r, rules)), pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
 }

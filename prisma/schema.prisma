@@ -1397,6 +1397,7 @@ model CourierProvider {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
   shipments Shipment[]
+  profitRules DeliveryProfitRule[]
 }
 
 // What the customer pays for courier delivery. An address maps to a zone by its courier zone id
@@ -1412,6 +1413,38 @@ model DeliveryZone {
   courierZoneIds Int[]            @default([])
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
+  profitRules    DeliveryProfitRule[]
+}
+
+enum ProfitRuleType {
+  FIXED
+  PERCENT
+}
+
+enum ProfitRuleBase {
+  CUSTOMER_FEE
+  COURIER_COST
+}
+
+// Admin-only target profit per shipment, for analysis (never changes what the customer pays).
+// zoneId / providerId null = all. At most one ACTIVE rule per scope (partial unique index
+// DeliveryProfitRule_one_active_per_scope in the migration). Most specific wins: zone+courier > zone > courier > all.
+model DeliveryProfitRule {
+  id         String          @id @default(uuid())
+  name       String
+  type       ProfitRuleType
+  value      Decimal         @db.Decimal(8, 2) // FIXED: whole taka 0-5000; PERCENT: 0-100
+  percentOf  ProfitRuleBase? // PERCENT only
+  zoneId     String?
+  providerId String?
+  isActive   Boolean         @default(true)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  zone       DeliveryZone?    @relation(fields: [zoneId], references: [id], onDelete: Restrict)
+  provider   CourierProvider? @relation(fields: [providerId], references: [id], onDelete: Restrict)
+
+  @@index([zoneId])
+  @@index([providerId])
 }
 
 // One per courier SubOrder, made at checkout (PENDING) and booked when the shop marks the order ready.

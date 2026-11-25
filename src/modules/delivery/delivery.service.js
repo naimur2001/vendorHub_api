@@ -71,6 +71,9 @@ export async function deleteZone(admin, id) {
   const z = await prisma.deliveryZone.findUnique({ where: { id } });
   if (!z) throw new AppError(404, 'Delivery zone not found');
   if (z.code === 'OUTSIDE_DHAKA') throw new AppError(409, 'OUTSIDE_DHAKA is the fallback zone and cannot be deleted', { code: 'FALLBACK_ZONE' });
+  if (await prisma.deliveryProfitRule.count({ where: { zoneId: id } })) {
+    throw new AppError(409, 'Delete the profit rules of this zone first', { code: 'ZONE_HAS_RULES' });
+  }
   await prisma.$transaction(async (tx) => {
     await tx.deliveryZone.delete({ where: { id } });
     await audit(tx, admin.id, 'delivery.zone_deleted', 'DeliveryZone', id, { code: z.code });
