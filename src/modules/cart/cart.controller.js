@@ -1,7 +1,7 @@
 import * as cartService from './cart.service.js';
 
 export const get = async (req, res) => {
-  res.json({ success: true, data: await cartService.getCart(req.user.id) });
+  res.json({ success: true, data: await cartService.getCart(req.user.id, req.validated.addressId) });
 };
 
 export const addItem = async (req, res) => {

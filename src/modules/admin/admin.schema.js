@@ -9,6 +9,8 @@ export const listShopsQuery = z.object({
     .optional(),
   isActive: bool.optional(),
   marketId: z.string().uuid().optional(),
+  courierStoreState: z.enum(['NONE', 'PENDING_APPROVAL', 'READY']).optional(),
+  deliveryMode: z.enum(['OWN', 'PLATFORM_COURIER']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });

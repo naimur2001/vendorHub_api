@@ -8,6 +8,7 @@ import {
   reportQuery,
   timeseriesQuery,
   shipmentsQuery,
+  quoteQuery,
   deliveryModeSchema,
   courierStoreSchema,
   providerUpdateSchema,
@@ -50,6 +51,11 @@ router.get('/delivery/locations/zones/:id/areas', intId, async (req, res) => {
   res.set('Cache-Control', 'public, max-age=3600');
   ok(res, await d.areasOf(req.courierId));
 });
+
+// ---------- customer: the delivery fee to one of my addresses (the admin zone fee) ----------
+router.get('/delivery/quote', authenticate, validateQuery(quoteQuery), async (req, res) =>
+  ok(res, await d.quoteForAddress(req.user.id, req.validated.addressId)),
+);
 
 // ---------- courier webhooks (no login; the signature is checked) ----------
 router.post('/webhooks/couriers/pathao', async (req, res) => {

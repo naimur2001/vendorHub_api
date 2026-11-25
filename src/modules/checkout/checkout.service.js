@@ -9,7 +9,7 @@ import { activeDeals, effectivePrice } from '../../lib/deals.js';
 import { redeemCoupon } from '../promotions/promotions.service.js';
 import { balanceOf, creditCap } from '../referrals/referrals.service.js';
 import { RESERVATION_HOURS, RESERVATION_CONFIRM_MINUTES, MAX_ACTIVE_RESERVATIONS } from '../../config/limits.js';
-import { zoneFor } from '../delivery/delivery.service.js';
+import { pickZone, quoteOf, shopDeliveryFee } from '../delivery/delivery.service.js';
 import { createShipmentInTx } from '../delivery/shipments.service.js';
 import { shipmentInclude, forCustomer } from '../delivery/shipments.present.js';
 
@@ -24,8 +24,6 @@ export const reservationTimes = (o) =>
         confirmBy: new Date(o.createdAt.getTime() + RESERVATION_CONFIRM_MINUTES * 60 * 1000),
       }
     : { reservedUntil: null, confirmBy: null };
-
-const DELIVERY_FEE = 60; // taka, charged once per shop that delivers itself (OWN); courier orders: the zone's fee
 
 const newOrderNumber = () => {
   const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -180,6 +178,7 @@ async function placeOrdersInTransaction(userId, { shops: choices, useCredit = fa
       }
 
       // 3. Validate each shop's delivery and payment choice
+      let zones = null;
       for (const c of choices) {
         const { shop } = byShop.get(c.shopId);
         if (c.deliveryMethod === 'VENDOR_DELIVERY') {
@@ -191,8 +190,11 @@ async function placeOrdersInTransaction(userId, { shops: choices, useCredit = fa
             if (!c.saved?.courierAreaId) {
               throw new AppError(400, 'Choose a saved address with a delivery area (city, zone and area)', { code: 'ADDRESS_NEEDS_AREA' });
             }
-            c.zone = await zoneFor(tx, c.saved);
-            if (!c.zone) throw new AppError(400, 'Delivery to this area is not available right now', { code: 'AREA_UNAVAILABLE' });
+            // the same quote as GET /delivery/quote and GET /cart?addressId= (the admin zone fee; never from the client)
+            zones ??= await tx.deliveryZone.findMany();
+            c.zone = pickZone(zones, c.saved);
+            c.quote = quoteOf(zones, c.saved);
+            if (!c.quote) throw new AppError(400, 'Delivery to this area is not available right now', { code: 'AREA_UNAVAILABLE' });
           }
         }
         const pickup = c.deliveryMethod === 'STORE_PICKUP' || c.deliveryMethod === 'RESERVE_PICKUP';
@@ -274,9 +276,10 @@ async function placeOrdersInTransaction(userId, { shops: choices, useCredit = fa
       let totalAmount = 0;
       const orders = [];
       for (const c of choices) {
-        const { lines } = byShop.get(c.shopId);
+        const { lines, shop } = byShop.get(c.shopId);
         const subtotal = lines.reduce((sum, l) => sum + l.unitPrice * l.quantity, 0);
-        const deliveryFee = c.deliveryMethod !== 'VENDOR_DELIVERY' ? 0 : c.zone ? c.zone.customerFee : DELIVERY_FEE;
+        // courier shops: the zone fee of the quote (any shop delivery fee setting is ignored)
+        const deliveryFee = c.deliveryMethod !== 'VENDOR_DELIVERY' ? 0 : shopDeliveryFee(shop, c.quote);
         // a coupon of THIS shop lowers the items' subtotal (never the delivery fee); computed here
         const coupon = c.couponCode ? await redeemCoupon(tx, userId, c.shopId, c.couponCode, subtotal) : null;
         const discount = coupon?.discount ?? 0;

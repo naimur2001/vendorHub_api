@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
-import { addressLocation } from '../delivery/delivery.service.js';
+import { addressLocation, withQuotes } from '../delivery/delivery.service.js';
 import { checkBirthYear } from '../../lib/demographics.js';
 
 const MAX_ADDRESSES = 10;
@@ -33,8 +33,11 @@ export async function updateProfile(userId, input) {
 
 // ---------- my addresses ----------
 
-export const listAddresses = (userId) =>
-  prisma.address.findMany({ where: { userId }, orderBy: [{ isDefault: 'desc' }, { id: 'asc' }] });
+// every address carries deliveryQuote: { zoneCode, zoneName, fee, etaText } (the admin zone fee) or null
+const withQuote = async (address) => (await withQuotes([address]))[0];
+
+export const listAddresses = async (userId) =>
+  withQuotes(await prisma.address.findMany({ where: { userId }, orderBy: [{ isDefault: 'desc' }, { id: 'asc' }] }));
 
 export async function createAddress(userId, input) {
   const count = await prisma.address.count({ where: { userId } });
@@ -42,12 +45,13 @@ export async function createAddress(userId, input) {
 
   const makeDefault = input.isDefault || count === 0; // the first address is always the default
   if (input.courierAreaId) Object.assign(input, await addressLocation(input)); // checked; names from the lists
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     if (makeDefault) {
       await tx.address.updateMany({ where: { userId, isDefault: true }, data: { isDefault: false } });
     }
     return tx.address.create({ data: { ...input, userId, isDefault: makeDefault } });
   });
+  return withQuote(created);
 }
 
 export async function updateAddress(userId, id, input) {
@@ -57,12 +61,13 @@ export async function updateAddress(userId, id, input) {
   if (input.isDefault === false && address.isDefault) {
     throw new AppError(400, 'Make another address the default instead');
   }
-  return prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     if (input.isDefault) {
       await tx.address.updateMany({ where: { userId, isDefault: true }, data: { isDefault: false } });
     }
     return tx.address.update({ where: { id }, data: input });
   });
+  return withQuote(updated);
 }
 
 export async function deleteAddress(userId, id) {
@@ -190,6 +195,8 @@ const myShopSelect = {
   levelFloor: true,
   shopNumber: true,
   createdAt: true,
+  deliveryMode: true,
+  courierStoreId: true, // read only for courierReady; never returned
   market: { select: { id: true, name: true, slug: true } },
   verifications: {
     orderBy: { submittedAt: 'desc' },
@@ -211,6 +218,8 @@ const toMyShop = (shop, membership, staffTitle) => {
     market: shop.market,
     levelFloor: shop.levelFloor,
     shopNumber: shop.shopNumber,
+    deliveryMode: shop.deliveryMode,
+    courierReady: Boolean(shop.courierStoreId), // the admin made the shop's courier pickup store
     // ShopVerification has no createdAt; the moment it was submitted is the right "created" time
     latestVerification: v
       ? { id: v.id, status: v.status, targetLevel: v.targetLevel, createdAt: v.submittedAt }

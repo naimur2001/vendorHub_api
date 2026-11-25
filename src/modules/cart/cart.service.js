@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
-import { deliveryAvailable } from '../delivery/delivery.service.js';
+import { deliveryAvailable, quoteOf, shopDeliveryFee } from '../delivery/delivery.service.js';
 import { AppError } from '../../lib/errors.js';
 import { recordAddToCart } from '../../lib/analytics.js';
 import { activeDeals, effectivePrice, presentDeal } from '../../lib/deals.js';
@@ -47,8 +47,19 @@ async function findOwnItem(userId, itemId) {
   return item;
 }
 
-// The cart grouped by shop, with live prices and per-item problem flags.
-export async function getCart(userId) {
+// The delivery quote for one of the customer's addresses (another user's -> 404); nulls without one.
+async function addressQuote(userId, addressId) {
+  if (!addressId) return { address: null, quote: null };
+  const address = await prisma.address.findFirst({ where: { id: addressId, userId } });
+  if (!address) throw new AppError(404, 'Address not found');
+  const zones = address.courierAreaId ? await prisma.deliveryZone.findMany() : [];
+  return { address, quote: quoteOf(zones, address) };
+}
+
+// The cart grouped by shop, with live prices and per-item problem flags. With an address, each shop
+// gets its delivery fee to it (courier shops: the admin zone fee, exactly what checkout charges).
+export async function getCart(userId, addressId) {
+  const { address, quote } = await addressQuote(userId, addressId);
   const cart = await prisma.cart.findUnique({
     where: { userId },
     include: {
@@ -98,7 +109,9 @@ export async function getCart(userId) {
       // false = checkout cannot offer VENDOR_DELIVERY for this shop (courier delivery not set up yet)
       shop.deliveryAvailable = deliveryAvailable(l.shop);
       shop.courierDelivery = deliveryMode === 'PLATFORM_COURIER'; // the fee then depends on the address's zone
-      groups.set(l.shop.id, { shop, items: [], subtotal: 0 });
+      // the VENDOR_DELIVERY fee: null when delivery is not available, or for a courier shop without an address quote
+      const deliveryFee = !shop.deliveryAvailable || (shop.courierDelivery && !address) ? null : shopDeliveryFee(l.shop, quote);
+      groups.set(l.shop.id, { shop, items: [], subtotal: 0, deliveryFee });
     }
     const group = groups.get(l.shop.id);
     group.items.push({
@@ -129,6 +142,9 @@ export async function getCart(userId) {
   const shops = [...groups.values()].sort((a, b) => a.shop.name.localeCompare(b.shop.name));
   return {
     shops,
+    // for ?addressId= (both null without one; deliveryQuote null when the address has no courier area or its zone is off)
+    deliveryAddressId: address?.id ?? null,
+    deliveryQuote: quote,
     totals: {
       itemCount,
       shopCount: shops.length,

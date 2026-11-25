@@ -263,6 +263,9 @@ async function main() {
       socialLinks: { facebook: 'https://www.facebook.com/techzone.electronics.demo', website: 'https://techzone.example.com/' },
       verificationLevel: 'PHYSICAL_SHOP_VERIFIED', lastAuditedAt: new Date('2026-03-15'),
       avgResponseMins: 15,
+      // the seeded shops deliver themselves (OWN): the older suites check out with a typed address.
+      // New shops default to PLATFORM_COURIER; test-delivery.ps1 switches TechZone to it.
+      deliveryMode: 'OWN',
     },
   });
   const mobileHouse = await prisma.shop.create({
@@ -273,7 +276,7 @@ async function main() {
       levelFloor: 'Level 2', shopNumber: 'Shop 17',
       addressLine: 'Level 2, Shop 17, Jamuna Future Park, Dhaka',
       phone: '01811000002',
-      verificationLevel: 'BUSINESS_VERIFIED', avgResponseMins: 30,
+      verificationLevel: 'BUSINESS_VERIFIED', avgResponseMins: 30, deliveryMode: 'OWN',
     },
   });
   const gadgetGalaxy = await prisma.shop.create({
@@ -285,7 +288,7 @@ async function main() {
       addressLine: 'Level 5, Shop 9, Bashundhara City, Dhaka',
       phone: '01911000003',
       verificationLevel: 'TRUSTED_VENDOR', lastAuditedAt: new Date('2026-02-10'),
-      avgResponseMins: 10, supportsDelivery: false,
+      avgResponseMins: 10, supportsDelivery: false, deliveryMode: 'OWN',
     },
   });
   const shops = [techzone, mobileHouse, gadgetGalaxy];

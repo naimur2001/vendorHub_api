@@ -58,7 +58,7 @@ function Need($value, $what) {
 function MyShops($token) { return @((Call 'GET' '/users/me/shops' $token $null).json.data) }
 
 # exactly these fields, nothing more (the score, notes, documents and ownerId must never appear)
-$shopKeys = 'createdAt,id,isActive,latestVerification,levelFloor,market,membership,name,shopNumber,slug,staffTitle,verificationLevel'
+$shopKeys = 'courierReady,createdAt,deliveryMode,id,isActive,latestVerification,levelFloor,market,membership,name,shopNumber,slug,staffTitle,verificationLevel'
 $verificationKeys = 'createdAt,id,status,targetLevel'
 function Keys($obj) { return (@($obj.PSObject.Properties.Name) | Sort-Object) -join ',' }
 

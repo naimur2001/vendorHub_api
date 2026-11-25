@@ -39,6 +39,8 @@ export const shipmentsQuery = z.object({
   limit,
 });
 
+export const quoteQuery = z.object({ addressId: z.uuid() });
+
 export const deliveryModeSchema = z.object({ deliveryMode: z.enum(['OWN', 'PLATFORM_COURIER']) }).strict();
 
 // all three or none

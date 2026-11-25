@@ -1,0 +1,515 @@
+# Courier delivery, step 3: the customer's fee before ordering, courier store states, the default mode.
+# - The customer's delivery fee for a PLATFORM_COURIER shop is always the admin zone fee
+#   (DeliveryZone.customerFee). The zone comes from the address: courier zone id, then city id, else
+#   OUTSIDE_DHAKA. It is computed on the server only; the shop never sets it (shop fee settings are ignored).
+#   GET /delivery/quote, GET /users/me/addresses (deliveryQuote), GET /cart?addressId= and POST /checkout
+#   all use the same calculation, so checkout charges exactly the quoted fee.
+# - Our cost (the courier's own price) is saved on the shipment when it is booked; admins only.
+# - New shops default to PLATFORM_COURIER; existing shops were moved to it. OWN stays for later.
+paths:
+  /api/v1/delivery/quote:
+    get:
+      tags: [Delivery]
+      operationId: getDeliveryQuote
+      summary: The courier delivery fee to one of my saved addresses
+      description: >-
+        fee = the admin zone fee of the address's zone. My own address only (another user's -> 404).
+        400 ADDRESS_NEEDS_AREA when the address has no courier city/zone/area; 400 AREA_UNAVAILABLE when
+        its zone is switched off.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: addressId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The quote.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/DeliveryQuote'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/cart:
+    get:
+      tags: [Cart]
+      operationId: getCart
+      summary: My cart, grouped by shop, with live prices, problems flagged and delivery fees
+      description: >-
+        With addressId (one of my saved addresses; another user's -> 404), each shop group's
+        deliveryFee is the VENDOR_DELIVERY fee to that address: for a courier shop the admin zone fee
+        (the same as GET /delivery/quote and what checkout charges). deliveryFee is null for a courier
+        shop without addressId, when the address has no courier area or its zone is off, and when the
+        shop offers no delivery (deliveryAvailable false).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: addressId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The cart (empty groups when nothing is in it).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/shops:
+    get:
+      tags: [Admin]
+      operationId: adminListShops
+      summary: The vendors list with statistics and courier store state
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Shop name.
+          schema:
+            type: string
+        - name: verificationLevel
+          in: query
+          schema:
+            $ref: '#/components/schemas/VerificationLevel'
+        - name: isActive
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - name: marketId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: courierStoreState
+          in: query
+          schema:
+            $ref: '#/components/schemas/CourierStoreState'
+        - name: deliveryMode
+          in: query
+          schema:
+            $ref: '#/components/schemas/ShopDeliveryMode'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of shops.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminShop'
+                  meta:
+                    type: object
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/admin/shops/{shopId}/courier-store:
+    parameters:
+      - $ref: '#/components/parameters/DeliveryShopId'
+    post:
+      tags: [Delivery]
+      operationId: adminCreateCourierStore
+      summary: Create the shop's pickup store at the default courier, or check it again (ADMIN)
+      description: >-
+        Uses the shop's name, phone and address. Without any store yet the location is required (400
+        LOCATION_REQUIRED). The courier may approve a new store later: then state PENDING_APPROVAL is
+        saved with the chosen location (GET /admin/shops?courierStoreState=PENDING_APPROVAL). Calling
+        again while it is pending only looks the store up again: it never creates a second store and
+        ignores a location sent then. READY once the courier gives the store id. 409 SHOP_PHONE_MISSING.
+        Mock mode: a store in an area whose id ends in 2 stays PENDING_APPROVAL.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                courierCityId:
+                  type: integer
+                courierZoneId:
+                  type: integer
+                courierAreaId:
+                  type: integer
+      responses:
+        '200':
+          description: The store.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [shopId, provider, courierStoreId, state, location]
+                    properties:
+                      shopId:
+                        type: string
+                        format: uuid
+                      provider:
+                        $ref: '#/components/schemas/CourierCode'
+                      courierStoreId:
+                        type: string
+                        nullable: true
+                      state:
+                        type: string
+                        enum: [READY, PENDING_APPROVAL]
+                      location:
+                        $ref: '#/components/schemas/CourierStoreLocation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/CourierUnavailable'
+
+components:
+  schemas:
+    CourierStoreState:
+      type: string
+      enum: [NONE, PENDING_APPROVAL, READY]
+      description: NONE = no store asked for; PENDING_APPROVAL = waiting for the courier; READY = has a store id.
+    DeliveryQuote:
+      type: object
+      required: [zoneCode, zoneName, fee, etaText]
+      properties:
+        zoneCode:
+          $ref: '#/components/schemas/DeliveryZoneCode'
+        zoneName:
+          type: string
+          example: Inside Dhaka
+        fee:
+          type: integer
+          description: The customer's delivery fee in taka (the admin zone fee).
+          example: 80
+        etaText:
+          type: string
+          example: 1-2 days
+    CourierStoreLocation:
+      type: object
+      nullable: true
+      description: The pickup location sent when the store was requested (null if none).
+      required: [cityId, cityName, zoneId, zoneName, areaId, areaName]
+      properties:
+        cityId:
+          type: integer
+        cityName:
+          type: string
+        zoneId:
+          type: integer
+        zoneName:
+          type: string
+        areaId:
+          type: integer
+        areaName:
+          type: string
+    AdminShop:
+      type: object
+      required: [id, name, slug, isActive, createdAt, verificationLevel, lastAuditedAt, owner, market, deliveryMode, courierStoreId, courierStoreState, courierStoreLocation, courierStoreRequestedAt, stats]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        verificationLevel:
+          $ref: '#/components/schemas/VerificationLevel'
+        lastAuditedAt:
+          type: string
+          format: date-time
+          nullable: true
+        owner:
+          type: object
+          required: [name, email]
+          properties:
+            name:
+              type: string
+            email:
+              type: string
+        market:
+          type: string
+          nullable: true
+          description: The market name.
+        deliveryMode:
+          $ref: '#/components/schemas/ShopDeliveryMode'
+        courierStoreId:
+          type: string
+          nullable: true
+        courierStoreState:
+          $ref: '#/components/schemas/CourierStoreState'
+        courierStoreLocation:
+          $ref: '#/components/schemas/CourierStoreLocation'
+        courierStoreRequestedAt:
+          type: string
+          format: date-time
+          nullable: true
+        stats:
+          type: object
+          required: [listings, followers, orders, revenue, ratingAverage, reviewCount]
+          properties:
+            listings:
+              type: integer
+            followers:
+              type: integer
+            orders:
+              type: integer
+            revenue:
+              type: integer
+            ratingAverage:
+              type: number
+              nullable: true
+            reviewCount:
+              type: integer
+    MyShop:
+      type: object
+      required: [id, name, slug, isActive, membership, staffTitle, verificationLevel, market, levelFloor, shopNumber, deliveryMode, courierReady, latestVerification, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: TechZone Electronics
+        slug:
+          type: string
+          example: techzone-electronics
+        isActive:
+          type: boolean
+          description: False when an admin deactivated the shop.
+        membership:
+          type: string
+          enum: [OWNER, STAFF]
+        staffTitle:
+          type: string
+          nullable: true
+          description: The staff title for STAFF, null for OWNER.
+        verificationLevel:
+          $ref: '#/components/schemas/VerificationLevel'
+        market:
+          allOf:
+            - $ref: '#/components/schemas/IdNameSlug'
+          nullable: true
+        levelFloor:
+          type: string
+          nullable: true
+          example: Level 3
+        shopNumber:
+          type: string
+          nullable: true
+          example: Shop 42
+        deliveryMode:
+          $ref: '#/components/schemas/ShopDeliveryMode'
+        courierReady:
+          type: boolean
+          description: True when the admin has made the shop's courier pickup store (courier delivery can be offered).
+        latestVerification:
+          type: object
+          nullable: true
+          description: The newest verification request of this shop, or null if none.
+          properties:
+            id:
+              type: string
+              format: uuid
+            status:
+              $ref: '#/components/schemas/VerificationStatus'
+            targetLevel:
+              $ref: '#/components/schemas/VerificationLevel'
+            createdAt:
+              type: string
+              format: date-time
+              description: When the request was submitted.
+        createdAt:
+          type: string
+          format: date-time
+    Address:
+      type: object
+      required: [id, label, line1, area, city, phone, isDefault, courierCityId, courierCityName, courierZoneId, courierZoneName, courierAreaId, courierAreaName, deliveryQuote]
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          nullable: true
+        line1:
+          type: string
+        area:
+          type: string
+          nullable: true
+        city:
+          type: string
+        phone:
+          type: string
+        isDefault:
+          type: boolean
+        courierCityId:
+          type: integer
+          nullable: true
+        courierCityName:
+          type: string
+          nullable: true
+        courierZoneId:
+          type: integer
+          nullable: true
+        courierZoneName:
+          type: string
+          nullable: true
+        courierAreaId:
+          type: integer
+          nullable: true
+        courierAreaName:
+          type: string
+          nullable: true
+        deliveryQuote:
+          allOf:
+            - $ref: '#/components/schemas/DeliveryQuote'
+          nullable: true
+          description: The courier delivery fee to this address; null without a courier area or when its zone is off.
+    CartShop:
+      type: object
+      required: [id, name, slug, logoUrl, levelFloor, shopNumber, addressLine, verificationLevel, supportsDelivery, supportsPickup, market, deliveryAvailable, courierDelivery]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        logoUrl:
+          type: string
+          nullable: true
+        levelFloor:
+          type: string
+          nullable: true
+        shopNumber:
+          type: string
+          nullable: true
+        addressLine:
+          type: string
+          nullable: true
+        verificationLevel:
+          $ref: '#/components/schemas/VerificationLevel'
+        supportsDelivery:
+          type: boolean
+        supportsPickup:
+          type: boolean
+        market:
+          type: object
+          nullable: true
+          properties:
+            name:
+              type: string
+            slug:
+              type: string
+        deliveryAvailable:
+          type: boolean
+          description: False = checkout cannot offer VENDOR_DELIVERY for this shop (no delivery, or courier store not ready).
+        courierDelivery:
+          type: boolean
+          description: True for a PLATFORM_COURIER shop; its fee is the admin zone fee of the address.
+    CartShopGroup:
+      type: object
+      required: [shop, items, subtotal, deliveryFee]
+      properties:
+        shop:
+          $ref: '#/components/schemas/CartShop'
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        subtotal:
+          type: integer
+        deliveryFee:
+          type: integer
+          nullable: true
+          description: The VENDOR_DELIVERY fee for this shop (see GET /cart); null when unknown or not available.
+    Cart:
+      type: object
+      required: [shops, deliveryAddressId, deliveryQuote, totals]
+      properties:
+        shops:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartShopGroup'
+        deliveryAddressId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The addressId sent, or null.
+        deliveryQuote:
+          allOf:
+            - $ref: '#/components/schemas/DeliveryQuote'
+          nullable: true
+          description: The quote for addressId; null without one, or when it has no courier area or its zone is off.
+        totals:
+          type: object
+          required: [itemCount, shopCount, subtotal, checkoutReady]
+          properties:
+            itemCount:
+              type: integer
+            shopCount:
+              type: integer
+            subtotal:
+              type: integer
+            checkoutReady:
+              type: boolean

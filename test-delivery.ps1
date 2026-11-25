@@ -71,11 +71,13 @@ $cat = @((Call 'GET' '/categories' $null $null).json.data)[0].id
 $tag = "Shipcheck$(Get-Date -Format 'yyyyMMddHHmmss')"
 $script:productIds = @()
 $script:addressIds = @()
+$snapFile = Join-Path $env:TEMP "vh-delivery-$tag.json"
+Helper snapshot $snapFile $techId | Out-Null   # TechZone starts on OWN without a store; restored at the end
 
 function Cleanup {
     Call 'DELETE' '/cart' $cust $null | Out-Null
     foreach ($a in $script:addressIds) { Call 'DELETE' "/users/me/addresses/$a" $cust $null | Out-Null }
-    Helper cleanup $since $techId | Out-Null
+    Helper cleanup $since $snapFile $techId | Out-Null
     if ($script:productIds.Count -gt 0) {
         $lines = @(node --env-file=.env scripts/product-sorts-test-helper.mjs cleanup $since @script:productIds)
         $line = @($lines | Where-Object { $_ -like '{*' -and $_ -notlike '*"level":*' }) | Select-Object -Last 1
@@ -295,7 +297,7 @@ Check 'owner cannot see the monitor -> 403' (Call 'GET' '/admin/delivery/summary
 Call 'POST' "/shops/$techId/orders/$($fo.id)/status" $owner @{ status = 'CANCELLED'; reason = 'Test finished' } | Out-Null
 $out = Cleanup
 Check 'cleanup removed the test orders' ($out.orders -ge 4) $true
-Check 'the shop is OWN again' ((Call 'GET' '/cart' $cust $null).status) 200
+Check 'the cart still works after cleanup' ((Call 'GET' '/cart' $cust $null).status) 200
 
 Write-Host ''
 Write-Host "Passed: $($script:pass)   Failed: $($script:fail)"

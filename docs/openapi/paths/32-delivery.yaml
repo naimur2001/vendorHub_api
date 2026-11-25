@@ -1,7 +1,7 @@
 # Courier delivery (tag "Delivery"). Vendors Hub books a platform courier (Pathao first) for shops in
 # PLATFORM_COURIER mode and earns margin = customerFee - courierCost.
 # - Customer fee: from the zone of the delivery address (INSIDE_DHAKA / DHAKA_SUBURB / OUTSIDE_DHAKA,
-#   admin-set; seeded 80 / 120 / 150 taka). OWN shops keep the fixed 60 taka.
+#   admin-set; seeded 80 / 120 / 150 taka). OWN shops keep the fixed 60 taka. See also 33-delivery-quote.yaml.
 # - Checkout for a PLATFORM_COURIER shop with VENDOR_DELIVERY needs addressId of a saved address with
 #   courierCityId / courierZoneId / courierAreaId (400 ADDRESS_NEEDS_AREA); without a courier store the
 #   shop offers no delivery (400 DELIVERY_UNAVAILABLE; cart shop.deliveryAvailable = false).

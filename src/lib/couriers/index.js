@@ -11,7 +11,7 @@ import { pathao, CourierError } from './pathao.js';
 
 export { CourierError };
 
-// Mock: Pathao-like ids (city 1 = Dhaka). Prices: city 1 = 60, else 110 taka.
+// Mock: Pathao-like ids (city 1 = Dhaka). Prices: city 1 = 60, else 110 taka. Stores: see createStore.
 const MOCK_CITIES = [
   { id: 1, name: 'Dhaka' },
   { id: 2, name: 'Chattogram' },
@@ -32,7 +32,10 @@ const mock = {
   cities: async () => MOCK_CITIES,
   zones: async (_p, cityId) => MOCK_ZONES[cityId] ?? [],
   areas: async (_p, zoneId) => (Object.values(MOCK_ZONES).flat().some((z) => z.id === Number(zoneId)) ? mockAreas(Number(zoneId)) : []),
-  createStore: async (_p, s) => ({ storeId: `MOCK-STORE-${crypto.createHash('sha256').update(s.name).digest('hex').slice(0, 8)}` }),
+  // like Pathao, a store can wait for approval: in mock mode one in a "Road 2 area" (area id ending in 2) never gets an id
+  createStore: async (_p, s) => ({
+    storeId: Number(s.areaId) % 10 === 2 ? null : `MOCK-STORE-${crypto.createHash('sha256').update(s.name).digest('hex').slice(0, 8)}`,
+  }),
   findStore: async () => null,
   quote: async (_p, { cityId }) => ({ cost: Number(cityId) === 1 ? 60 : 110 }),
   async createOrder(_p, o) {

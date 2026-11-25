@@ -249,8 +249,11 @@ model Shop {
   photos           ShopPhoto[]
   coupons          Coupon[]
   productDeletionRequests ProductDeletionRequest[]
-  deliveryMode     ShopDeliveryMode @default(OWN) // OWN = the shop delivers (as before); PLATFORM_COURIER = our courier account
+  deliveryMode     ShopDeliveryMode @default(PLATFORM_COURIER) // PLATFORM_COURIER = our courier account (default); OWN = the shop delivers (later)
   courierStoreId   String? // the courier's pickup store for this shop (admin action); never shown outside the admin
+  courierStoreState CourierStoreState @default(NONE) // READY when courierStoreId is set
+  courierStoreLocation Json? // { cityId, cityName, zoneId, zoneName, areaId, areaName } sent when the store was requested (admin only)
+  courierStoreRequestedAt DateTime?
   shipments        Shipment[]
   returnPolicy     String?
   returnWindowDays Int                @default(7)
@@ -1352,6 +1355,13 @@ enum CourierCode {
 enum ShopDeliveryMode {
   OWN
   PLATFORM_COURIER
+}
+
+// NONE = no store asked for; PENDING_APPROVAL = asked, the courier approves it later; READY = has a store id
+enum CourierStoreState {
+  NONE
+  PENDING_APPROVAL
+  READY
 }
 
 enum DeliveryZoneCode {

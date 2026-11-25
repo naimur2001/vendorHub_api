@@ -77,14 +77,46 @@ export async function deleteZone(admin, id) {
   });
 }
 
-/** The zone of a courier location: by zone id, then by city id, else OUTSIDE_DHAKA. */
-export async function zoneFor(db, { courierCityId, courierZoneId }) {
-  const zones = await db.deliveryZone.findMany();
+/** The zone of a courier location among the zones: by zone id, then by city id, else OUTSIDE_DHAKA; null when switched off. */
+export function pickZone(zones, { courierCityId, courierZoneId }) {
   const zone =
     zones.find((z) => z.courierZoneIds.includes(courierZoneId)) ??
     zones.find((z) => z.courierCityIds.includes(courierCityId)) ??
     zones.find((z) => z.code === 'OUTSIDE_DHAKA');
   return zone && zone.isActive ? zone : null;
+}
+
+
+// ---------- the customer fee (always the admin zone fee; the shop never sets it) ----------
+
+/** What a courier order to this address costs the customer, or null (no courier area / zone switched off). */
+export function quoteOf(zones, address) {
+  if (!address?.courierAreaId) return null;
+  const zone = pickZone(zones, address);
+  return zone ? { zoneCode: zone.code, zoneName: zone.name, fee: zone.customerFee, etaText: zone.etaText } : null;
+}
+
+export const OWN_DELIVERY_FEE = 60; // taka, a shop that delivers itself (OWN; for later)
+
+/** One shop's delivery fee to an address: courier shops -> the zone fee (null without a quote; shop settings ignored). */
+export const shopDeliveryFee = (shop, quote) => (shop.deliveryMode === 'PLATFORM_COURIER' ? (quote?.fee ?? null) : OWN_DELIVERY_FEE);
+
+/** The addresses with their deliveryQuote (one zone query for all of them). */
+export async function withQuotes(addresses, db = prisma) {
+  const zones = addresses.some((a) => a.courierAreaId) ? await db.deliveryZone.findMany() : [];
+  return addresses.map((a) => ({ ...a, deliveryQuote: quoteOf(zones, a) }));
+}
+
+/** GET /delivery/quote: the customer's own address only (another user's -> 404). */
+export async function quoteForAddress(userId, addressId) {
+  const address = await prisma.address.findFirst({ where: { id: addressId, userId } });
+  if (!address) throw new AppError(404, 'Address not found');
+  if (!address.courierAreaId) {
+    throw new AppError(400, 'Choose a saved address with a delivery area (city, zone and area)', { code: 'ADDRESS_NEEDS_AREA' });
+  }
+  const quote = quoteOf(await prisma.deliveryZone.findMany(), address);
+  if (!quote) throw new AppError(400, 'Delivery to this area is not available right now', { code: 'AREA_UNAVAILABLE' });
+  return quote;
 }
 
 // ---------- public location lists (names only) ----------
@@ -137,11 +169,34 @@ export async function setDeliveryMode(user, shopId, { deliveryMode }) {
   return { shopId, deliveryMode: updated.deliveryMode, courierReady: Boolean(updated.courierStoreId) };
 }
 
-/** Admin: creates the shop's pickup store at the default courier, or refreshes its id. */
+const storeLocation = (where) => ({
+  cityId: where.courierCityId,
+  cityName: where.courierCityName,
+  zoneId: where.courierZoneId,
+  zoneName: where.courierZoneName,
+  areaId: where.courierAreaId,
+  areaName: where.courierAreaName,
+});
+
+/**
+ * Admin: creates the shop's pickup store at the default courier, or checks it again.
+ * A store waiting for the courier's approval (PENDING_APPROVAL) is only looked up again, never made a
+ * second time (a location sent then is ignored). Without any store yet, the location is required.
+ */
 export async function createCourierStore(admin, shopId, input) {
   const shop = await prisma.shop.findUnique({
     where: { id: shopId },
-    select: { id: true, name: true, slug: true, phone: true, addressLine: true, courierStoreId: true, owner: { select: { name: true } }, market: { select: { name: true } } },
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      addressLine: true,
+      courierStoreId: true,
+      courierStoreState: true,
+      courierStoreLocation: true,
+      owner: { select: { name: true } },
+      market: { select: { name: true } },
+    },
   });
   if (!shop) throw new AppError(404, 'Shop not found');
   if (!shop.phone) throw new AppError(409, 'The shop needs a phone number first', { code: 'SHOP_PHONE_MISSING' });
@@ -150,9 +205,15 @@ export async function createCourierStore(admin, shopId, input) {
   const storeName = `VH ${shop.name}`.slice(0, 50);
 
   let storeId = null;
+  let location = shop.courierStoreLocation;
+  let step = 'found'; // found | kept (already READY) | checked (still pending) | created
   try {
     const found = await adapter.findStore(provider, storeName);
-    if (found) storeId = found.storeId;
+    if (found?.storeId) storeId = found.storeId;
+    else if (shop.courierStoreId) {
+      storeId = shop.courierStoreId;
+      step = 'kept';
+    } else if (shop.courierStoreState === 'PENDING_APPROVAL') step = 'checked';
     else {
       if (!input.courierCityId) {
         throw new AppError(400, 'Send courierCityId, courierZoneId and courierAreaId to create the store', { code: 'LOCATION_REQUIRED' });
@@ -167,19 +228,29 @@ export async function createCourierStore(admin, shopId, input) {
         zoneId: where.courierZoneId,
         areaId: where.courierAreaId,
       });
-      storeId = made.storeId;
+      storeId = made.storeId ?? null;
+      location = storeLocation(where);
+      step = 'created';
     }
   } catch (err) {
     if (err instanceof AppError) throw err;
     return courierUnavailable(err);
   }
 
+  const state = storeId ? 'READY' : 'PENDING_APPROVAL';
   await prisma.$transaction(async (tx) => {
-    if (storeId) await tx.shop.update({ where: { id: shopId }, data: { courierStoreId: storeId } });
-    await audit(tx, admin.id, 'shop.courier_store_set', 'Shop', shopId, { provider: provider.code, ready: Boolean(storeId) });
+    await tx.shop.update({
+      where: { id: shopId },
+      data: {
+        courierStoreState: state,
+        ...(storeId && { courierStoreId: storeId }),
+        ...(step === 'created' && { courierStoreLocation: location, courierStoreRequestedAt: new Date() }),
+      },
+    });
+    await audit(tx, admin.id, 'shop.courier_store_set', 'Shop', shopId, { provider: provider.code, state, step });
   });
   // the store id is admin data: the shop only learns whether courier delivery is ready
-  return { shopId, provider: provider.code, courierStoreId: storeId, state: storeId ? 'READY' : 'PENDING_APPROVAL' };
+  return { shopId, provider: provider.code, courierStoreId: storeId, state, location: location ?? null };
 }
 
 /** True when the shop can take delivery orders right now (OWN, or PLATFORM_COURIER with a store). */

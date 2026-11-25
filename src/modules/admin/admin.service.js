@@ -15,8 +15,10 @@ function resolveRange({ from, to }) {
 
 // ---------- vendors ----------
 
-export async function listShops({ q, verificationLevel, isActive, marketId, page, limit }) {
+export async function listShops({ q, verificationLevel, isActive, marketId, courierStoreState, deliveryMode, page, limit }) {
   const where = {
+    ...(courierStoreState && { courierStoreState }),
+    ...(deliveryMode && { deliveryMode }),
     ...(q && { name: { contains: q, mode: 'insensitive' } }),
     ...(verificationLevel && { verificationLevel }),
     ...(isActive !== undefined && { isActive }),
@@ -70,6 +72,12 @@ export async function listShops({ q, verificationLevel, isActive, marketId, page
       lastAuditedAt: s.lastAuditedAt,
       owner: s.owner,
       market: s.market?.name ?? null,
+      deliveryMode: s.deliveryMode,
+      courierStoreId: s.courierStoreId,
+      courierStoreState: s.courierStoreState,
+      // the pickup location sent when the store was requested: { cityId, cityName, zoneId, zoneName, areaId, areaName }
+      courierStoreLocation: s.courierStoreLocation ?? null,
+      courierStoreRequestedAt: s.courierStoreRequestedAt,
       stats: {
         listings: s._count.listings,
         followers: s._count.followers,
