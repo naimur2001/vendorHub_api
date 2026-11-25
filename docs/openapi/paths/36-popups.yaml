@@ -1,0 +1,563 @@
+# Welcome popup (tag "Popups"): one image / poster shown when someone opens the website. Images use the
+# banner pipeline (multipart "media" + optional "mobileMedia", re-encoded to WebP, GIFs stay animated,
+# at least 300 x 300, max 5 MB). PlatformSetting popupsEnabled (default true) switches every popup off.
+# The web remembers "closed" by id + version in memory / sessionStorage (no tracking cookies); version
+# goes up on every content change (texts, link, CTA, images), so a changed popup shows again.
+paths:
+  /api/v1/popups/active:
+    get:
+      tags: [Popups]
+      operationId: activePopup
+      summary: The one popup to show now, or null (no login needed)
+      description: >-
+        The highest priority live popup (active, inside its dates) for this visitor's audience (from the
+        optional login: guests GUESTS, customers CUSTOMERS, shop owners / staff SHOP_TEAM; ALL for everyone)
+        and page (page=home shows HOME_ONLY and ALL_PAGES popups, any other page only ALL_PAGES). Texts in
+        ?lang= (or Accept-Language bn); Bangla falls back to English. Cache-Control max-age=60 (private when
+        logged in), Vary Authorization, Accept-Language.
+      parameters:
+        - name: page
+          in: query
+          description: A page key, e.g. home, product, shop (a-z, 0-9, -).
+          schema:
+            type: string
+            default: home
+        - name: lang
+          in: query
+          schema:
+            type: string
+            enum: [en, bn]
+        - name: Authorization
+          in: header
+          required: false
+          description: Optional; decides the audience.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The popup or null.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/PublicPopup'
+                    nullable: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/v1/popups/{id}/events:
+    parameters:
+      - $ref: '#/components/parameters/PopupId'
+    post:
+      tags: [Popups]
+      operationId: popupEvent
+      summary: Count a view, close or click (anonymous; at most 30 a minute per IP)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [type]
+              properties:
+                type:
+                  type: string
+                  enum: [VIEW, CLOSE, CLICK]
+      responses:
+        '202':
+          description: Counted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [recorded]
+                    properties:
+                      recorded:
+                        type: string
+                        enum: [VIEW, CLOSE, CLICK]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/v1/admin/popups/settings:
+    get:
+      tags: [Popups]
+      operationId: adminPopupSettings
+      summary: The popupsEnabled switch (ADMIN)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/PopupSettingsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    patch:
+      tags: [Popups]
+      operationId: adminUpdatePopupSettings
+      summary: Switch every popup on or off (ADMIN, audited)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [popupsEnabled]
+              properties:
+                popupsEnabled:
+                  type: boolean
+      responses:
+        '200':
+          $ref: '#/components/responses/PopupSettingsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/popups:
+    get:
+      tags: [Popups]
+      operationId: adminListPopups
+      summary: All popups, active and highest priority first, with liveNow (ADMIN)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The popups.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminPopup'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Popups]
+      operationId: adminCreatePopup
+      summary: Add a popup (multipart like banners; ADMIN, audited)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PopupInput'
+                - type: object
+                  required: [media, titleEn]
+      responses:
+        '201':
+          $ref: '#/components/responses/AdminPopupResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: The image is larger than 5 MB.
+        '422':
+          description: The image is too small (at least 300 x 300) or not an image.
+  /api/v1/admin/popups/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PopupId'
+    patch:
+      tags: [Popups]
+      operationId: adminUpdatePopup
+      summary: Change a popup; a content change bumps its version (ADMIN, audited)
+      description: Any field of the create form, a new media / mobileMedia, or removeMobileMedia=true. "" clears an optional field.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PopupInput'
+                - type: object
+                  properties:
+                    removeMobileMedia:
+                      type: string
+                      enum: ['true', 'false']
+      responses:
+        '200':
+          $ref: '#/components/responses/AdminPopupResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          description: The image is larger than 5 MB.
+        '422':
+          description: The image is too small or not an image.
+    delete:
+      tags: [Popups]
+      operationId: adminDeletePopup
+      summary: Delete a popup with its images and stats (ADMIN, audited)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/popups/{id}/stop:
+    parameters:
+      - $ref: '#/components/parameters/PopupId'
+    post:
+      tags: [Popups]
+      operationId: adminStopPopup
+      summary: Stop a popup now (isActive false; ADMIN, audited)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/AdminPopupResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/popups/{id}/stats:
+    parameters:
+      - $ref: '#/components/parameters/PopupId'
+    get:
+      tags: [Popups]
+      operationId: adminPopupStats
+      summary: Views, closes, clicks and CTR per Dhaka day (ADMIN)
+      description: from / to are Dhaka days (inclusive; default the last 30 days). ctr = clicks / views in percent (null without views).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: The stats.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [popupId, from, to, totals, days]
+                    properties:
+                      popupId:
+                        type: string
+                        format: uuid
+                      from:
+                        type: string
+                        format: date
+                      to:
+                        type: string
+                        format: date
+                      totals:
+                        $ref: '#/components/schemas/PopupStatCounts'
+                      days:
+                        type: array
+                        items:
+                          allOf:
+                            - $ref: '#/components/schemas/PopupStatCounts'
+                            - type: object
+                              required: [day]
+                              properties:
+                                day:
+                                  type: string
+                                  format: date
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  parameters:
+    PopupId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    PopupSettingsResponse:
+      description: The setting.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                type: object
+                required: [popupsEnabled]
+                properties:
+                  popupsEnabled:
+                    type: boolean
+    AdminPopupResponse:
+      description: The popup.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                $ref: '#/components/schemas/AdminPopup'
+  schemas:
+    PopupAudience:
+      type: string
+      enum: [ALL, GUESTS, CUSTOMERS, SHOP_TEAM]
+    PopupPages:
+      type: string
+      enum: [HOME_ONLY, ALL_PAGES]
+    PopupFrequency:
+      type: string
+      enum: [ONCE_PER_VISITOR, ONCE_PER_DAY, EVERY_VISIT]
+      description: The web decides when to show it again (remember id + version).
+    PopupInput:
+      type: object
+      properties:
+        media:
+          type: string
+          format: binary
+          description: JPG, PNG, WebP or GIF (stays animated); at least 300 x 300, max 5 MB.
+        mobileMedia:
+          type: string
+          format: binary
+        titleEn:
+          type: string
+          maxLength: 120
+          description: Also the alt text.
+        titleBn:
+          type: string
+          maxLength: 120
+        bodyEn:
+          type: string
+          maxLength: 500
+        bodyBn:
+          type: string
+          maxLength: 500
+        linkUrl:
+          type: string
+          maxLength: 500
+          description: A path starting with "/" or an https:// URL.
+        ctaLabelEn:
+          type: string
+          maxLength: 40
+        ctaLabelBn:
+          type: string
+          maxLength: 40
+        isActive:
+          type: string
+          enum: ['true', 'false']
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          default: 0
+        audience:
+          $ref: '#/components/schemas/PopupAudience'
+        pages:
+          $ref: '#/components/schemas/PopupPages'
+        frequency:
+          $ref: '#/components/schemas/PopupFrequency'
+        delaySeconds:
+          type: integer
+          minimum: 0
+          maximum: 30
+          default: 2
+    PublicPopup:
+      type: object
+      required: [id, version, title, body, imageUrl, mobileImageUrl, mediaType, linkUrl, ctaLabel, frequency, delaySeconds]
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        title:
+          type: string
+        body:
+          type: string
+          nullable: true
+        imageUrl:
+          type: string
+        mobileImageUrl:
+          type: string
+          nullable: true
+        mediaType:
+          type: string
+          enum: [IMAGE, GIF]
+        linkUrl:
+          type: string
+          nullable: true
+        ctaLabel:
+          type: string
+          nullable: true
+        frequency:
+          $ref: '#/components/schemas/PopupFrequency'
+        delaySeconds:
+          type: integer
+    PopupMedia:
+      type: object
+      nullable: true
+      properties:
+        url:
+          type: string
+        thumbUrl:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
+    AdminPopup:
+      type: object
+      required: [id, version, titleEn, titleBn, bodyEn, bodyBn, mediaType, media, mobileMedia, linkUrl, ctaLabelEn, ctaLabelBn, isActive, startsAt, endsAt, priority, audience, pages, frequency, delaySeconds, liveNow, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        titleEn:
+          type: string
+        titleBn:
+          type: string
+          nullable: true
+        bodyEn:
+          type: string
+          nullable: true
+        bodyBn:
+          type: string
+          nullable: true
+        mediaType:
+          type: string
+          enum: [IMAGE, GIF]
+        media:
+          $ref: '#/components/schemas/PopupMedia'
+        mobileMedia:
+          $ref: '#/components/schemas/PopupMedia'
+        linkUrl:
+          type: string
+          nullable: true
+        ctaLabelEn:
+          type: string
+          nullable: true
+        ctaLabelBn:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+        startsAt:
+          type: string
+          format: date-time
+          nullable: true
+        endsAt:
+          type: string
+          format: date-time
+          nullable: true
+        priority:
+          type: integer
+        audience:
+          $ref: '#/components/schemas/PopupAudience'
+        pages:
+          $ref: '#/components/schemas/PopupPages'
+        frequency:
+          $ref: '#/components/schemas/PopupFrequency'
+        delaySeconds:
+          type: integer
+        liveNow:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    PopupStatCounts:
+      type: object
+      required: [views, closes, clicks, ctr]
+      properties:
+        views:
+          type: integer
+        closes:
+          type: integer
+        clicks:
+          type: integer
+        ctr:
+          type: number
+          nullable: true

@@ -39,6 +39,8 @@ export const IMAGE_PROFILES = Object.freeze({
   // home page side advertisement: tall, 2:3 recommended (e.g. 600 x 900); GIFs stay animated
   SIDE_AD: Object.freeze({ width: 900, thumbWidth: 450, minWidth: 300, minHeight: 400, animated: true }),
   // optional phone version of a home banner (portrait or smaller)
+  // welcome popup poster (any shape, shown in a dialog); GIFs stay animated
+  POPUP: Object.freeze({ width: 1200, thumbWidth: 400, minWidth: 300, minHeight: 300, animated: true }),
   HOME_BANNER_MOBILE: Object.freeze({ width: 1080, thumbWidth: 540, minWidth: 400, minHeight: 300, animated: true }),
     // search by photo: never stored; re-encoded (no EXIF/GPS) and made small before it goes to the AI
   SEARCH: Object.freeze({ width: 1024, thumbWidth: 64, minWidth: 1, minHeight: 1 }),

@@ -47,6 +47,7 @@ import moderationRoutes from './modules/moderation/moderation.routes.js';
 import referralRoutes from './modules/referrals/referrals.routes.js';
 import paymentRoutes from './modules/payments/payments.routes.js';
 import subscriptionRoutes from './modules/subscriptions/subscriptions.routes.js';
+import popupRoutes from './modules/popups/popups.routes.js';
 export const app = express();
 
 // Behind Nginx or a load balancer: trust its X-Forwarded-For so rate limiting sees real client IPs
@@ -141,6 +142,7 @@ app.use('/api/v1', moderationRoutes);
 app.use('/api/v1', referralRoutes);
 app.use('/api/v1', paymentRoutes);
 app.use('/api/v1', subscriptionRoutes);
+app.use('/api/v1', popupRoutes);
 app.use('/api/v1', userRoutes);
 app.use('/api/v1', staffRoutes);
 app.use('/api/v1', uploadRoutes);

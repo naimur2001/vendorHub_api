@@ -65,3 +65,12 @@ export const bannerUploadLimiter = rateLimit({
 });
 // Shop To-Let: new listings, enquiries and their uploads from one IP (guests too). Like login, off in development.
 export const toLetLimiter = make(20, { windowMs: 60 * 60 * 1000 });
+
+// Welcome popup stats (public, anonymous): at most 30 events a minute per IP (always on, like chat).
+export const popupEventLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { success: false, error: { message: 'Too many requests. Please try again later.' } },
+});

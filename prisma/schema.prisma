@@ -1077,6 +1077,8 @@ model Image {
   shopLogo   Shop?    @relation("ShopLogo")
   shopBanner Shop?    @relation("ShopBanner")
   homeBanner       Banner? @relation("HomeBanner")
+  popupImage       SitePopup? @relation("PopupImage")
+  popupMobileImage SitePopup? @relation("PopupMobileImage")
   homeBannerMobile Banner? @relation("HomeBannerMobile")
   reviewPhoto      ReviewPhoto?
   toLetPhoto       ToLetPhoto?
@@ -1734,4 +1736,69 @@ model ShopReferral {
   createdAt      DateTime  @default(now())
 
   @@index([referrerShopId])
+}
+
+// ───────────── WELCOME POPUP ─────────────
+// One image / poster popup per visit (the highest priority live one). PlatformSetting popupsEnabled
+// (default true) switches every popup off. version goes up on every content change, so a changed
+// popup shows again to people who closed it.
+
+enum PopupAudience {
+  ALL
+  GUESTS
+  CUSTOMERS
+  SHOP_TEAM
+}
+
+enum PopupPages {
+  HOME_ONLY
+  ALL_PAGES
+}
+
+enum PopupFrequency {
+  ONCE_PER_VISITOR
+  ONCE_PER_DAY
+  EVERY_VISIT
+}
+
+model SitePopup {
+  id            String          @id @default(uuid())
+  titleEn       String // also the alt text
+  titleBn       String?
+  bodyEn        String?
+  bodyBn        String?
+  mediaType     BannerMediaType
+  imageId       String          @unique
+  image         Image           @relation("PopupImage", fields: [imageId], references: [id])
+  mobileImageId String?         @unique
+  mobileImage   Image?          @relation("PopupMobileImage", fields: [mobileImageId], references: [id], onDelete: SetNull)
+  linkUrl       String? // internal path or https URL (same rule as banners)
+  ctaLabelEn    String?
+  ctaLabelBn    String?
+  isActive      Boolean         @default(true)
+  startsAt      DateTime?
+  endsAt        DateTime?
+  priority      Int             @default(0)
+  audience      PopupAudience   @default(ALL)
+  pages         PopupPages      @default(HOME_ONLY)
+  frequency     PopupFrequency  @default(ONCE_PER_DAY)
+  delaySeconds  Int             @default(2)
+  version       Int             @default(1)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  stats         SitePopupDailyStat[]
+
+  @@index([isActive, priority])
+}
+
+// Anonymous counts only (no personal data): one row per popup and Dhaka day.
+model SitePopupDailyStat {
+  popupId String
+  day     DateTime  @db.Date
+  views   Int       @default(0)
+  closes  Int       @default(0)
+  clicks  Int       @default(0)
+  popup   SitePopup @relation(fields: [popupId], references: [id], onDelete: Cascade)
+
+  @@id([popupId, day])
 }

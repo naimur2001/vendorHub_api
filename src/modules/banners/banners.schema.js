@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
 // Multipart sends every field as text: "" clears an optional field, "true"/"false" are booleans.
-const blankToNull = (v) => (v === '' ? null : v);
-const optText = (max) => z.preprocess(blankToNull, z.string().trim().max(max).nullable().optional());
-const optDate = z.preprocess(blankToNull, z.coerce.date().nullable().optional());
-const optBool = z.preprocess(
+export const blankToNull = (v) => (v === '' ? null : v);
+export const optText = (max) => z.preprocess(blankToNull, z.string().trim().max(max).nullable().optional());
+export const optDate = z.preprocess(blankToNull, z.coerce.date().nullable().optional());
+export const optBool = z.preprocess(
   (v) => (v === 'true' ? true : v === 'false' ? false : v),
   z.boolean().optional(),
 );
@@ -22,7 +22,7 @@ const isSafeLink = (s) => {
     return false;
   }
 };
-const linkUrl = z.preprocess(
+export const linkUrl = z.preprocess(
   blankToNull,
   z
     .string()
