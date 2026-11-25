@@ -9,6 +9,7 @@ import { runToLetSweep } from './modules/toLet/toLet.job.js';
 import { runProductDeletionSweep } from './modules/productDeletion/productDeletion.job.js';
 import { runBookingRetries, runShipmentPoll } from './modules/delivery/delivery.job.js';
 import { SHIPMENT_POLL_MINUTES } from './config/limits.js';
+import { runSubscriptionSweep } from './modules/subscriptions/subscriptions.job.js';
 const server = app.listen(env.PORT, () => {
   logger.info(`API running on http://localhost:${env.PORT}`);
 });
@@ -40,6 +41,11 @@ bookingJob.unref();
 const pollJob = setInterval(runShipmentPoll, SHIPMENT_POLL_MINUTES * 60 * 1000);
 pollJob.unref();
 
+// Shop subscriptions (does nothing while subscriptionsEnabled is off): period ends, grace, expiry, notices.
+const subscriptionJob = setInterval(runSubscriptionSweep, 24 * 60 * 60 * 1000);
+subscriptionJob.unref();
+setTimeout(runSubscriptionSweep, 3 * 60 * 1000).unref();
+
 // Product deletion requests: carry out the ones whose 12 hours are over.
 const productDeletionJob = setInterval(runProductDeletionSweep, 10 * 60 * 1000);
 productDeletionJob.unref();
@@ -59,6 +65,7 @@ function shutdown(signal) {
   clearInterval(productDeletionJob);
   clearInterval(bookingJob);
   clearInterval(pollJob);
+  clearInterval(subscriptionJob);
   server.close(async () => {
     await prisma.$disconnect();
     process.exit(0);

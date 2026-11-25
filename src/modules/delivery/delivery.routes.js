@@ -21,6 +21,7 @@ import * as d from './delivery.service.js';
 import * as sh from './shipments.service.js';
 import * as rep from './reports.service.js';
 import * as pr from './profitRules.service.js';
+import { requireModule } from '../../lib/entitlements.js';
 
 const router = Router();
 const adminOnly = [authenticate, requireRole('ADMIN')];
@@ -70,7 +71,7 @@ router.post('/webhooks/couriers/pathao', async (req, res) => {
 });
 
 // ---------- shops ----------
-router.patch('/shops/:shopId/delivery-mode', authenticate, uuids('shopId'), validate(deliveryModeSchema), async (req, res) =>
+router.patch('/shops/:shopId/delivery-mode', authenticate, uuids('shopId'), validate(deliveryModeSchema), requireModule('COURIER_DELIVERY', (req) => req.body.deliveryMode === 'PLATFORM_COURIER'), async (req, res) =>
   ok(res, await d.setDeliveryMode(req.user, req.params.shopId, req.body)),
 );
 router.post('/shops/:shopId/orders/:orderId/ship', ...shopTeam, uuids('shopId', 'orderId'), async (req, res) =>

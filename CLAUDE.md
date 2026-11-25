@@ -13,11 +13,11 @@ Node 22 (ES modules, plain JS), Express 5, Prisma 6, PostgreSQL 16 + pgvector (D
 - Courier delivery (`src/modules/delivery/`): a VENDOR_DELIVERY order of a `PLATFORM_COURIER` shop gets a Shipment at checkout; READY_FOR_PICKUP books it; webhook + 30 min poll move it. `shipments.present.js` is a leaf module (checkout/fulfilment import it at load time; avoid import cycles). Customers never see courier cost/margin/store id; shops never see cost/margin.
 - `src/middlewares/`: `auth.js` (authenticate does one DB lookup: blocks ACCOUNT_DELETION_PENDING), `rateLimit.js`, `photoUpload.js` (receivePhoto / receiveFileField), `verifiedEmail.js`.
 - Files: `uploads/media` (public WebP, served only by `/media/:name`), `uploads/private` (verification documents, originals, served by `GET /files/:id`), `uploads/staging`. Never served statically.
-- Docs: `docs/openapi/base.yaml` + `docs/openapi/paths/NN-*.yaml`, merged in name order (a later file overrides a path method or schema). 262 operations. Swagger at `/api/docs`.
+- Docs: `docs/openapi/base.yaml` + `docs/openapi/paths/NN-*.yaml`, merged in name order (a later file overrides a path method or schema). 283 operations. Swagger at `/api/docs`.
 
 ## Rules (important)
 - Never edit an applied migration; always a new one (`npx prisma migrate dev --name ...`). Raw SQL needs `--create-only` then edit.
-- Partial unique indexes live only in migration SQL (`ProductDeletionRequest_one_pending_per_shop_product`, `CourierProvider_one_default`, `DeliveryProfitRule_one_active_per_scope`): delete any `DROP INDEX` for them from a generated `migrate diff`. Never run `npx prisma format` (reformats the whole schema).
+- Partial unique indexes live only in migration SQL (`ProductDeletionRequest_one_pending_per_shop_product`, `CourierProvider_one_default`, `DeliveryProfitRule_one_active_per_scope`, `ShopSubscription_one_current_per_shop`, `SubscriptionRequest_one_pending_per_shop`): delete any `DROP INDEX` for them from a generated `migrate diff`. Never run `npx prisma format` (reformats the whole schema).
 - New table -> add `prisma.<model>.deleteMany()` near the top of `clean()` in `prisma/seed.js`.
 - Windows: STOP the dev server before `prisma migrate` / `prisma generate` (EPERM lock). Restart after `.env` or YAML changes.
 - SQL only parameterised (`Prisma.sql`, `$queryRaw` templates). Never string-concatenate user input.
@@ -27,7 +27,7 @@ Node 22 (ES modules, plain JS), Express 5, Prisma 6, PostgreSQL 16 + pgvector (D
 - New endpoint checklist: Zod schema, service, controller, route, OpenAPI file with `required`/`nullable`, update the exact count in `test-openapi.ps1`, PowerShell test, run the full suite.
 
 ## Tests
-- PowerShell suites `test-*.ps1`, all run by `run-all-tests.ps1` (reseeds first; `test-security.ps1` must stay LAST). 52 suites, all must pass.
+- PowerShell suites `test-*.ps1`, all run by `run-all-tests.ps1` (reseeds first; `test-security.ps1` must stay LAST). 53 suites, all must pass.
 - Test `.env`: `MAIL_MODE=log`, `TRYON_MODE=mock`, `SEARCH_IMAGE_MODE=mock`, `MESSAGING_MODE=mock`, `PAYMENT_MODE=mock`, `COURIER_MODE=mock`, `AUTO_VERIFY_EMAIL_DOMAINS=vendorshub.test`. Never run tests in gemini/smtp or a real messaging/payment/courier mode.
 - Scripts: ASCII only. PowerShell 5.1 quirks: wrap one-item results in `@()`; a WebRequestSession re-sends earlier headers; a hand-made `Cookie` header is dropped; curl joins repeated `--data-binary`.
 - Helpers: `node --env-file=.env prisma/seed.js`, `scripts/backfill-fingerprints.mjs`, `scripts/check-openapi.mjs`, `scripts/clean-orphan-files.mjs` (dry run by default), `scripts/check-pathao.mjs` (read-only check of the Pathao SANDBOX with the `.env` keys).

@@ -1,0 +1,1454 @@
+# Shop subscriptions (tag "Subscriptions"). Built but switched OFF: while subscriptionsEnabled is false
+# every shop can use everything for free, the shop-side endpoints answer { enabled: false } and nothing is
+# charged or expired. Admins manage plans, prices, subscriptions and payments (audited).
+# - Modules: ANALYTICS (owner analytics, ?lowStock=true), CSV_IMPORT, PROMOTIONS (deals, coupons),
+#   FEATURED_SLOTS, STAFF_ACCOUNTS, BARGAINING (bargainEnabled true on a listing), ORDER_CHAT (shop replies),
+#   COURIER_DELIVERY (switching to PLATFORM_COURIER), SHOP_PHOTOS_EXTRA (more than 3 shop photos), PRIORITY_SUPPORT.
+#   Limits: maxProducts (shop listings), maxStaff, maxActiveDeals (null = unlimited).
+# - When on, guarded shop routes answer 402 { code: PLAN_REQUIRED, module } or 409 { code: PLAN_LIMIT,
+#   name, limit, used } to the shop's own team (admins are never limited).
+# - currentPeriodEnd = paid (or trial) until. A paid subscription starts unpaid (currentPeriodEnd = startsAt);
+#   each recorded payment moves it forward by one period. Daily job (only when on): TRIAL end -> ACTIVE or
+#   PAST_DUE; ACTIVE past its end -> PAST_DUE (or CANCELLED when cancelAtPeriodEnd); PAST_DUE after graceDays
+#   -> EXPIRED and the shop falls back to FREE (data is never deleted).
+# Notifications (to the shop owner): SUBSCRIPTION_EXPIRING (7 and 1 days before), SUBSCRIPTION_PAST_DUE,
+# SUBSCRIPTION_EXPIRED, SUBSCRIPTION_REQUEST_APPROVED / _REJECTED; to admins: SUBSCRIPTION_REQUEST.
+paths:
+  /api/v1/admin/subscriptions/settings:
+    get:
+      tags: [Subscriptions]
+      operationId: adminSubscriptionSettings
+      summary: The master switch and the days settings (ADMIN)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SubscriptionSettingsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    patch:
+      tags: [Subscriptions]
+      operationId: adminUpdateSubscriptionSettings
+      summary: Switch subscriptions on or off, change the trial and grace days (ADMIN, audited)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                subscriptionsEnabled:
+                  type: boolean
+                freeTrialDays:
+                  type: integer
+                  minimum: 0
+                  maximum: 365
+                graceDays:
+                  type: integer
+                  minimum: 0
+                  maximum: 90
+      responses:
+        '200':
+          $ref: '#/components/responses/SubscriptionSettingsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/admin/subscription-plans:
+    get:
+      tags: [Subscriptions]
+      operationId: adminListPlans
+      summary: All plans with prices, savings and the number of shops on them (ADMIN)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The plans.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/SubscriptionPlan'
+                        - type: object
+                          required: [currentShops]
+                          properties:
+                            currentShops:
+                              type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Subscriptions]
+      operationId: adminCreatePlan
+      summary: Add a plan (ADMIN, audited; 409 PLAN_CODE_TAKEN)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriptionPlanInput'
+      responses:
+        '201':
+          $ref: '#/components/responses/SubscriptionPlanResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/subscription-plans/{id}:
+    parameters:
+      - $ref: '#/components/parameters/SubUuid'
+    patch:
+      tags: [Subscriptions]
+      operationId: adminUpdatePlan
+      summary: Change a plan (ADMIN, audited); FREE keeps its code and stays active (409 FREE_PLAN)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriptionPlanPatch'
+      responses:
+        '200':
+          $ref: '#/components/responses/SubscriptionPlanResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [Subscriptions]
+      operationId: adminDeletePlan
+      summary: Delete a plan no shop ever used (ADMIN, audited); else 409 PLAN_IN_USE (switch it off)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/subscription-plans/{id}/prices:
+    parameters:
+      - $ref: '#/components/parameters/SubUuid'
+    put:
+      tags: [Subscriptions]
+      operationId: adminSetPlanPrices
+      summary: Set the plan's prices (one per period; periods left out are removed) (ADMIN, audited)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [prices]
+              properties:
+                prices:
+                  type: array
+                  maxItems: 4
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [period, amount]
+                    properties:
+                      period:
+                        $ref: '#/components/schemas/BillingPeriod'
+                      amount:
+                        type: integer
+                        minimum: 0
+                        description: Whole taka.
+                      isActive:
+                        type: boolean
+                        default: true
+      responses:
+        '200':
+          $ref: '#/components/responses/SubscriptionPlanResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/admin/subscriptions/summary:
+    get:
+      tags: [Subscriptions]
+      operationId: adminSubscriptionSummary
+      summary: Shops per status and plan, MRR, revenue, paying / free / trial, unpaid, expiring, churned (ADMIN)
+      description: >-
+        from / to are Dhaka days (inclusive, default the last 30 days). Shops without a subscription count as FREE.
+        mrr = monthly equivalent of the ACTIVE and PAST_DUE paid subscriptions. revenue counts RECORDED payments
+        by their paidAt. churned = shops whose paid subscription ended in the range and that are not on a paid plan now.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: The summary.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/SubscriptionSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/subscriptions/usage:
+    get:
+      tags: [Subscriptions]
+      operationId: adminSubscriptionUsage
+      summary: Which shops use each module, from the real tables (ADMIN)
+      description: >-
+        Per module the metric, how many shops use it, the total and the top shops (20, or 200 with moduleCode).
+        ANALYTICS and PRIORITY_SUPPORT are not tracked (tracked false). products = listings per shop.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: moduleCode
+          in: query
+          schema:
+            $ref: '#/components/schemas/SubscriptionModule'
+      responses:
+        '200':
+          description: The usage.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [since, modules, products]
+                    properties:
+                      since:
+                        type: string
+                        format: date-time
+                      modules:
+                        type: array
+                        items:
+                          allOf:
+                            - $ref: '#/components/schemas/ModuleUsage'
+                            - type: object
+                              required: [module, tracked]
+                              properties:
+                                module:
+                                  $ref: '#/components/schemas/SubscriptionModule'
+                                tracked:
+                                  type: boolean
+                      products:
+                        $ref: '#/components/schemas/ModuleUsage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/subscriptions:
+    get:
+      tags: [Subscriptions]
+      operationId: adminListSubscriptions
+      summary: Current shop subscriptions (ADMIN), soonest period end first
+      description: >-
+        unpaid=true = ACTIVE or PAST_DUE paid subscriptions whose paid time is over. expiringInDays = TRIAL or
+        ACTIVE ending within that many days. history=true includes ended rows.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/SubscriptionStatus'
+        - name: planId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: period
+          in: query
+          schema:
+            $ref: '#/components/schemas/BillingPeriod'
+        - name: q
+          in: query
+          description: Shop name or slug.
+          schema:
+            type: string
+        - name: expiringInDays
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+        - name: unpaid
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - name: history
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ShopSubscriptionRow'
+                  meta:
+                    type: object
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/subscriptions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/SubUuid'
+    get:
+      tags: [Subscriptions]
+      operationId: adminGetSubscription
+      summary: One subscription with all its payments (ADMIN)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The subscription.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/ShopSubscriptionRow'
+                      - type: object
+                        required: [payments]
+                        properties:
+                          payments:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/SubscriptionPayment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Subscriptions]
+      operationId: adminUpdateSubscription
+      summary: Cancel at period end, set the status, a note, or extend by days (ADMIN, audited)
+      description: >-
+        status CANCELLED or EXPIRED ends it now and the shop falls back to FREE. extendDays moves currentPeriodEnd
+        (and a trial end). 409 SUBSCRIPTION_ENDED for an ended row.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                cancelAtPeriodEnd:
+                  type: boolean
+                status:
+                  type: string
+                  enum: [ACTIVE, PAST_DUE, CANCELLED, EXPIRED]
+                note:
+                  type: string
+                  nullable: true
+                  maxLength: 500
+                extendDays:
+                  type: integer
+                  minimum: 1
+                  maximum: 365
+      responses:
+        '200':
+          $ref: '#/components/responses/ShopSubscriptionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/subscriptions/{id}/payments:
+    parameters:
+      - $ref: '#/components/parameters/SubUuid'
+    post:
+      tags: [Subscriptions]
+      operationId: adminRecordSubscriptionPayment
+      summary: Record a payment by hand; moves currentPeriodEnd forward by one period (ADMIN, audited)
+      description: >-
+        The payment covers [currentPeriodEnd, currentPeriodEnd + one period]. 400 ONLINE_NOT_AVAILABLE for
+        method ONLINE (later); 409 NOTHING_DUE on a free plan, SUBSCRIPTION_ENDED for an ended row.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [amount, method]
+              properties:
+                amount:
+                  type: integer
+                  minimum: 0
+                method:
+                  $ref: '#/components/schemas/SubscriptionPaymentMethod'
+                reference:
+                  type: string
+                  maxLength: 100
+                  description: e.g. the bKash transaction id.
+                paidAt:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          $ref: '#/components/responses/SubscriptionPaymentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/subscription-payments/{id}/refund:
+    parameters:
+      - $ref: '#/components/parameters/SubUuid'
+    post:
+      tags: [Subscriptions]
+      operationId: adminRefundSubscriptionPayment
+      summary: Mark a payment refunded; the latest paid period is taken back (ADMIN, audited; 409 ALREADY_REFUNDED)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note:
+                  type: string
+                  maxLength: 500
+      responses:
+        '200':
+          $ref: '#/components/responses/SubscriptionPaymentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/shops/{shopId}/subscription:
+    parameters:
+      - $ref: '#/components/parameters/SubShopId'
+    post:
+      tags: [Subscriptions]
+      operationId: adminStartShopSubscription
+      summary: Start or change a shop's plan (ADMIN, audited); the old row is kept as history
+      description: >-
+        The price is copied (a per-shop custom price first, else the plan's active price for the period; 400
+        PRICE_NOT_SET). trialDays > 0 -> TRIAL; price 0 -> FREE; else ACTIVE and unpaid until a payment is
+        recorded. 400 PLAN_INACTIVE.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [planId, period]
+              properties:
+                planId:
+                  type: string
+                  format: uuid
+                period:
+                  $ref: '#/components/schemas/BillingPeriod'
+                startsAt:
+                  type: string
+                  format: date-time
+                trialDays:
+                  type: integer
+                  minimum: 0
+                  maximum: 365
+                note:
+                  type: string
+                  maxLength: 500
+      responses:
+        '201':
+          $ref: '#/components/responses/ShopSubscriptionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/admin/subscription-requests:
+    get:
+      tags: [Subscriptions]
+      operationId: adminListSubscriptionRequests
+      summary: Plan requests from shop owners (ADMIN; default PENDING, oldest first)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, APPROVED, REJECTED]
+            default: PENDING
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data, meta]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SubscriptionRequest'
+                  meta:
+                    type: object
+                    properties:
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/admin/subscription-requests/{id}/approve:
+    parameters:
+      - $ref: '#/components/parameters/SubUuid'
+    post:
+      tags: [Subscriptions]
+      operationId: adminApproveSubscriptionRequest
+      summary: Approve (after payment) and start the plan (ADMIN, audited; 409 NOT_PENDING)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                startsAt:
+                  type: string
+                  format: date-time
+                trialDays:
+                  type: integer
+                  minimum: 0
+                  maximum: 365
+                note:
+                  type: string
+                  maxLength: 500
+      responses:
+        '200':
+          $ref: '#/components/responses/SubscriptionRequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/subscription-requests/{id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/SubUuid'
+    post:
+      tags: [Subscriptions]
+      operationId: adminRejectSubscriptionRequest
+      summary: Reject a plan request with a note (ADMIN, audited; 409 NOT_PENDING)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [note]
+              properties:
+                note:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        '200':
+          $ref: '#/components/responses/SubscriptionRequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/shops/{shopId}/subscription:
+    parameters:
+      - $ref: '#/components/parameters/SubShopId'
+    get:
+      tags: [Subscriptions]
+      operationId: shopSubscription
+      summary: My shop's plan, limits with usage and the published plans (owner / staff); { enabled false } while off
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 'While off: { enabled: false } only.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ShopSubscriptionView'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/shops/{shopId}/entitlements:
+    parameters:
+      - $ref: '#/components/parameters/SubShopId'
+    get:
+      tags: [Subscriptions]
+      operationId: shopEntitlements
+      summary: What the shop may use (owner / staff); every module and no limits while subscriptions are off
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Show or lock features with this.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [enabled, modules, limits]
+                    properties:
+                      enabled:
+                        type: boolean
+                      modules:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/SubscriptionModule'
+                      limits:
+                        $ref: '#/components/schemas/PlanLimits'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/shops/{shopId}/subscription/request:
+    parameters:
+      - $ref: '#/components/parameters/SubShopId'
+    post:
+      tags: [Subscriptions]
+      operationId: shopRequestPlan
+      summary: Ask for a published plan (shop owner); an admin approves after payment
+      description: >-
+        While off: 200 { enabled: false } and nothing is saved. 400 PLAN_NOT_AVAILABLE; 409 REQUEST_PENDING
+        (one pending request per shop). Admins are told (SUBSCRIPTION_REQUEST).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [planId, period]
+              properties:
+                planId:
+                  type: string
+                  format: uuid
+                period:
+                  $ref: '#/components/schemas/BillingPeriod'
+      responses:
+        '200':
+          description: 'Subscriptions are off: { enabled: false }.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataObject'
+        '201':
+          description: The request.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [enabled, request]
+                    properties:
+                      enabled:
+                        type: boolean
+                      request:
+                        $ref: '#/components/schemas/SubscriptionRequest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+components:
+  parameters:
+    SubUuid:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SubShopId:
+      name: shopId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    PlanRequired:
+      description: 'Subscriptions are on and the plan lacks the module: { code: PLAN_REQUIRED, module }.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    SubscriptionSettingsResponse:
+      description: The settings.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                type: object
+                required: [subscriptionsEnabled, freeTrialDays, graceDays]
+                properties:
+                  subscriptionsEnabled:
+                    type: boolean
+                  freeTrialDays:
+                    type: integer
+                  graceDays:
+                    type: integer
+    SubscriptionPlanResponse:
+      description: The plan.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                $ref: '#/components/schemas/SubscriptionPlan'
+    ShopSubscriptionResponse:
+      description: The subscription.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                $ref: '#/components/schemas/ShopSubscriptionRow'
+    SubscriptionPaymentResponse:
+      description: The payment and the subscription after it.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                type: object
+                required: [payment, subscription]
+                properties:
+                  payment:
+                    $ref: '#/components/schemas/SubscriptionPayment'
+                  subscription:
+                    $ref: '#/components/schemas/ShopSubscriptionRow'
+    SubscriptionRequestResponse:
+      description: The request.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success:
+                type: boolean
+              data:
+                $ref: '#/components/schemas/SubscriptionRequest'
+  schemas:
+    SubscriptionModule:
+      type: string
+      enum: [ANALYTICS, CSV_IMPORT, PROMOTIONS, FEATURED_SLOTS, STAFF_ACCOUNTS, BARGAINING, ORDER_CHAT, COURIER_DELIVERY, SHOP_PHOTOS_EXTRA, PRIORITY_SUPPORT]
+    BillingPeriod:
+      type: string
+      enum: [MONTHLY, QUARTERLY, HALF_YEARLY, YEARLY]
+    SubscriptionStatus:
+      type: string
+      enum: [TRIAL, ACTIVE, PAST_DUE, CANCELLED, EXPIRED, FREE]
+    SubscriptionPaymentMethod:
+      type: string
+      enum: [MANUAL_BKASH, MANUAL_NAGAD, CASH, BANK, ONLINE]
+      description: ONLINE comes later (400 ONLINE_NOT_AVAILABLE for now).
+    PlanLimits:
+      type: object
+      required: [maxProducts, maxStaff, maxActiveDeals]
+      properties:
+        maxProducts:
+          type: integer
+          nullable: true
+        maxStaff:
+          type: integer
+          nullable: true
+        maxActiveDeals:
+          type: integer
+          nullable: true
+    PlanPrice:
+      type: object
+      required: [period, months, amount, isActive, monthlyEquivalent, savingVsMonthly, savingPercent]
+      properties:
+        period:
+          $ref: '#/components/schemas/BillingPeriod'
+        months:
+          type: integer
+        amount:
+          type: integer
+        isActive:
+          type: boolean
+        monthlyEquivalent:
+          type: integer
+        savingVsMonthly:
+          type: integer
+          nullable: true
+          description: monthly price x months - amount (null without a monthly price).
+        savingPercent:
+          type: number
+          nullable: true
+    SubscriptionPlanInput:
+      type: object
+      additionalProperties: false
+      required: [code, nameEn, nameBn]
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Za-z0-9_]{2,30}$'
+          description: Stored upper case.
+        nameEn:
+          type: string
+          minLength: 2
+          maxLength: 60
+        nameBn:
+          type: string
+          minLength: 1
+          maxLength: 60
+        descriptionEn:
+          type: string
+          nullable: true
+          maxLength: 500
+        descriptionBn:
+          type: string
+          nullable: true
+          maxLength: 500
+        modules:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubscriptionModule'
+        maxProducts:
+          type: integer
+          nullable: true
+        maxStaff:
+          type: integer
+          nullable: true
+        maxActiveDeals:
+          type: integer
+          nullable: true
+        isPublished:
+          type: boolean
+          default: false
+        isActive:
+          type: boolean
+          default: true
+        sortOrder:
+          type: integer
+          default: 0
+    SubscriptionPlanPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        code:
+          type: string
+        nameEn:
+          type: string
+        nameBn:
+          type: string
+        descriptionEn:
+          type: string
+          nullable: true
+        descriptionBn:
+          type: string
+          nullable: true
+        modules:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubscriptionModule'
+        maxProducts:
+          type: integer
+          nullable: true
+        maxStaff:
+          type: integer
+          nullable: true
+        maxActiveDeals:
+          type: integer
+          nullable: true
+        isPublished:
+          type: boolean
+        isActive:
+          type: boolean
+        sortOrder:
+          type: integer
+    SubscriptionPlan:
+      type: object
+      required: [id, code, nameEn, nameBn, descriptionEn, descriptionBn, modules, maxProducts, maxStaff, maxActiveDeals, isPublished, isActive, sortOrder, prices, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        nameEn:
+          type: string
+        nameBn:
+          type: string
+        descriptionEn:
+          type: string
+          nullable: true
+        descriptionBn:
+          type: string
+          nullable: true
+        modules:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubscriptionModule'
+        maxProducts:
+          type: integer
+          nullable: true
+        maxStaff:
+          type: integer
+          nullable: true
+        maxActiveDeals:
+          type: integer
+          nullable: true
+        isPublished:
+          type: boolean
+        isActive:
+          type: boolean
+        sortOrder:
+          type: integer
+        prices:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlanPrice'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ShopSubscriptionRow:
+      type: object
+      required: [id, shop, plan, period, status, startsAt, currentPeriodEnd, trialEndsAt, cancelAtPeriodEnd, priceAtStart, source, note, isCurrent, endedAt, lastPaymentAt, paidThisPeriod, amountDue, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        shop:
+          type: object
+          required: [id, name, slug, owner]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            slug:
+              type: string
+            owner:
+              type: object
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+        plan:
+          type: object
+          required: [id, code, nameEn, nameBn]
+          properties:
+            id:
+              type: string
+              format: uuid
+            code:
+              type: string
+            nameEn:
+              type: string
+            nameBn:
+              type: string
+        period:
+          $ref: '#/components/schemas/BillingPeriod'
+        status:
+          $ref: '#/components/schemas/SubscriptionStatus'
+        startsAt:
+          type: string
+          format: date-time
+        currentPeriodEnd:
+          type: string
+          format: date-time
+          nullable: true
+          description: Paid (or trial) until; null on a free plan.
+        trialEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        cancelAtPeriodEnd:
+          type: boolean
+        priceAtStart:
+          type: integer
+        source:
+          type: string
+          enum: [ADMIN, SELF_SERVE]
+        note:
+          type: string
+          nullable: true
+        isCurrent:
+          type: boolean
+        endedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastPaymentAt:
+          type: string
+          format: date-time
+          nullable: true
+        paidThisPeriod:
+          type: boolean
+        amountDue:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+    SubscriptionPayment:
+      type: object
+      required: [id, subscriptionId, amount, method, reference, paidAt, recordedById, periodStart, periodEnd, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        subscriptionId:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+        method:
+          $ref: '#/components/schemas/SubscriptionPaymentMethod'
+        reference:
+          type: string
+          nullable: true
+        paidAt:
+          type: string
+          format: date-time
+        recordedById:
+          type: string
+          format: uuid
+        periodStart:
+          type: string
+          format: date-time
+        periodEnd:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [RECORDED, REFUNDED]
+        refundedAt:
+          type: string
+          format: date-time
+          nullable: true
+        refundNote:
+          type: string
+          nullable: true
+    SubscriptionRequest:
+      type: object
+      required: [id, plan, period, status, rejectNote, subscriptionId, decidedAt, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        shop:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            slug:
+              type: string
+        plan:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            code:
+              type: string
+            nameEn:
+              type: string
+            nameBn:
+              type: string
+        period:
+          $ref: '#/components/schemas/BillingPeriod'
+        status:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED]
+        rejectNote:
+          type: string
+          nullable: true
+        subscriptionId:
+          type: string
+          format: uuid
+          nullable: true
+        decidedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    ShopSubscriptionView:
+      type: object
+      required: [enabled]
+      description: 'While off only { enabled: false }; when on all fields.'
+      properties:
+        enabled:
+          type: boolean
+        subscription:
+          type: object
+          nullable: true
+          description: null = on the FREE plan without a row.
+          properties:
+            period:
+              $ref: '#/components/schemas/BillingPeriod'
+            status:
+              $ref: '#/components/schemas/SubscriptionStatus'
+            startsAt:
+              type: string
+              format: date-time
+            currentPeriodEnd:
+              type: string
+              format: date-time
+              nullable: true
+            trialEndsAt:
+              type: string
+              format: date-time
+              nullable: true
+            cancelAtPeriodEnd:
+              type: boolean
+            price:
+              type: integer
+            amountDue:
+              type: integer
+        plan:
+          allOf:
+            - $ref: '#/components/schemas/SubscriptionPlan'
+          nullable: true
+        modules:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubscriptionModule'
+        limits:
+          type: object
+          description: 'Each limit as { limit (null = unlimited), used }, e.g. maxProducts { limit: 200, used: 120 }.'
+          additionalProperties:
+            type: object
+            properties:
+              limit:
+                type: integer
+                nullable: true
+              used:
+                type: integer
+        plans:
+          type: array
+          description: Published, active plans with their active prices.
+          items:
+            $ref: '#/components/schemas/SubscriptionPlan'
+        pendingRequest:
+          allOf:
+            - $ref: '#/components/schemas/SubscriptionRequest'
+          nullable: true
+    ModuleUsage:
+      type: object
+      required: [metric, shopCount, total, top]
+      properties:
+        metric:
+          type: string
+          nullable: true
+        shopCount:
+          type: integer
+        total:
+          type: integer
+        top:
+          type: array
+          items:
+            type: object
+            properties:
+              shopId:
+                type: string
+                format: uuid
+              name:
+                type: string
+              slug:
+                type: string
+              count:
+                type: integer
+    SubscriptionSummary:
+      type: object
+      required: [from, to, shops, byStatus, byPlan, counts, mrr, revenue]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        shops:
+          type: integer
+        byStatus:
+          type: object
+          additionalProperties:
+            type: integer
+        byPlan:
+          type: array
+          items:
+            type: object
+            properties:
+              planId:
+                type: string
+                format: uuid
+              code:
+                type: string
+              nameEn:
+                type: string
+              shops:
+                type: integer
+        counts:
+          type: object
+          required: [paying, trial, free, unpaid, expiringNext7Days, churned]
+          properties:
+            paying:
+              type: integer
+            trial:
+              type: integer
+            free:
+              type: integer
+            unpaid:
+              type: integer
+            expiringNext7Days:
+              type: integer
+            churned:
+              type: integer
+        mrr:
+          type: integer
+          description: Monthly-equivalent revenue of the paying subscriptions (taka).
+        revenue:
+          type: object
+          required: [total, byDay, byPlan]
+          properties:
+            total:
+              type: integer
+            byDay:
+              type: array
+              items:
+                type: object
+                properties:
+                  day:
+                    type: string
+                    format: date
+                  amount:
+                    type: integer
+            byPlan:
+              type: array
+              items:
+                type: object
+                properties:
+                  planId:
+                    type: string
+                    format: uuid
+                  code:
+                    type: string
+                  amount:
+                    type: integer

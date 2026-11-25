@@ -109,6 +109,15 @@ const slugify = (s) =>
 // Children first, parents last (foreign keys point child -> parent)
 async function clean() {
   await prisma.$transaction([
+        prisma.subscriptionPayment.deleteMany(),
+        prisma.subscriptionRequest.deleteMany(),
+        prisma.shopSubscription.deleteMany(),
+        prisma.shopPlanPrice.deleteMany(),
+        prisma.planCoupon.deleteMany(),
+        prisma.planPrice.deleteMany(),
+        prisma.subscriptionPlan.deleteMany(),
+        prisma.shopReferral.deleteMany(),
+        prisma.platformSetting.deleteMany(),
         prisma.shipmentEvent.deleteMany(),
         prisma.shipment.deleteMany(),
         prisma.deliveryProfitRule.deleteMany(),
@@ -189,6 +198,14 @@ async function main() {
   await clean();
 
   // courier delivery: 5 couriers (only Pathao active and the default) and the 3 customer fee zones
+  // the FREE plan (every module, no limits, 0 taka): today's behaviour while subscriptions are off
+  await prisma.subscriptionPlan.create({
+    data: {
+      code: 'FREE', nameEn: 'Free', nameBn: 'ফ্রি', descriptionEn: 'Everything, free for now.', descriptionBn: 'এখন সবকিছু ফ্রি।',
+      modules: ['ANALYTICS', 'CSV_IMPORT', 'PROMOTIONS', 'FEATURED_SLOTS', 'STAFF_ACCOUNTS', 'BARGAINING', 'ORDER_CHAT', 'COURIER_DELIVERY', 'SHOP_PHOTOS_EXTRA', 'PRIORITY_SUPPORT'],
+      isPublished: true, prices: { create: [{ period: 'MONTHLY', amount: 0 }] },
+    },
+  });
   await prisma.courierProvider.createMany({
     data: [
       { code: 'PATHAO', name: 'Pathao', isActive: true, isDefault: true, sandbox: true, config: { deliveryType: 48, itemType: 2, itemWeight: 0.5 } },

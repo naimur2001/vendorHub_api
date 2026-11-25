@@ -255,6 +255,9 @@ model Shop {
   courierStoreLocation Json? // { cityId, cityName, zoneId, zoneName, areaId, areaName } sent when the store was requested (admin only)
   courierStoreRequestedAt DateTime?
   shipments        Shipment[]
+  subscriptions        ShopSubscription[]
+  subscriptionRequests SubscriptionRequest[]
+  planPrices           ShopPlanPrice[]
   returnPolicy     String?
   returnWindowDays Int                @default(7)
 
@@ -1506,4 +1509,229 @@ model ShipmentEvent {
   shipment   Shipment        @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   @@index([shipmentId, at])
+}
+
+// ───────────── PLATFORM SETTINGS ─────────────
+
+// Admin switches as key/value (e.g. subscriptionsEnabled, freeTrialDays, graceDays, popupsEnabled).
+// A missing key means its default in src/lib/settings.js.
+model PlatformSetting {
+  key         String   @id
+  value       Json
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}
+
+// ───────────── SHOP SUBSCRIPTIONS ─────────────
+// Built but switched off (subscriptionsEnabled = false): then every module check passes.
+
+enum SubscriptionModule {
+  ANALYTICS
+  CSV_IMPORT
+  PROMOTIONS
+  FEATURED_SLOTS
+  STAFF_ACCOUNTS
+  BARGAINING
+  ORDER_CHAT
+  COURIER_DELIVERY
+  SHOP_PHOTOS_EXTRA
+  PRIORITY_SUPPORT
+}
+
+enum BillingPeriod {
+  MONTHLY
+  QUARTERLY
+  HALF_YEARLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+  FREE
+}
+
+enum SubscriptionSource {
+  ADMIN
+  SELF_SERVE
+}
+
+enum SubscriptionPaymentMethod {
+  MANUAL_BKASH
+  MANUAL_NAGAD
+  CASH
+  BANK
+  ONLINE
+}
+
+enum SubscriptionPaymentStatus {
+  RECORDED
+  REFUNDED
+}
+
+enum SubscriptionRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PlanDiscountType {
+  PERCENT
+  AMOUNT
+}
+
+model SubscriptionPlan {
+  id             String               @id @default(uuid())
+  code           String               @unique // upper case, e.g. FREE, GROWTH
+  nameEn         String
+  nameBn         String
+  descriptionEn  String?
+  descriptionBn  String?
+  modules        SubscriptionModule[] @default([])
+  maxProducts    Int? // null = unlimited
+  maxStaff       Int?
+  maxActiveDeals Int?
+  isPublished    Boolean              @default(false) // shop owners can see it
+  isActive       Boolean              @default(true)
+  sortOrder      Int                  @default(0)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  prices         PlanPrice[]
+  subscriptions  ShopSubscription[]
+  requests       SubscriptionRequest[]
+  shopPrices     ShopPlanPrice[]
+  coupons        PlanCoupon[]
+}
+
+// One price per plan and period (whole taka).
+model PlanPrice {
+  id        String           @id @default(uuid())
+  planId    String
+  period    BillingPeriod
+  amount    Int
+  isActive  Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  plan      SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, period])
+}
+
+// History is kept: at most one isCurrent row per shop (partial unique index ShopSubscription_one_current_per_shop).
+// currentPeriodEnd = paid (or trial) until; null for FREE. priceAtStart is copied from the price.
+model ShopSubscription {
+  id                   String                @id @default(uuid())
+  shopId               String
+  planId               String
+  period               BillingPeriod
+  status               SubscriptionStatus
+  startsAt             DateTime
+  currentPeriodEnd     DateTime?
+  trialEndsAt          DateTime?
+  cancelAtPeriodEnd    Boolean               @default(false)
+  priceAtStart         Int
+  source               SubscriptionSource    @default(ADMIN)
+  note                 String?
+  isCurrent            Boolean               @default(true)
+  endedAt              DateTime?
+  expiryNoticeDays     Int? // the last "expiring" notice sent (7 or 1); cleared by a payment
+  couponId             String? // later: a plan coupon used at the start
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  shop                 Shop                  @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  plan                 SubscriptionPlan      @relation(fields: [planId], references: [id], onDelete: Restrict)
+  payments             SubscriptionPayment[]
+
+  @@index([shopId, isCurrent])
+  @@index([status, currentPeriodEnd])
+}
+
+// Recorded by an admin for now (bKash / Nagad / cash / bank); ONLINE comes with the payment provider.
+model SubscriptionPayment {
+  id             String                    @id @default(uuid())
+  subscriptionId String
+  amount         Int
+  method         SubscriptionPaymentMethod
+  reference      String?
+  paidAt         DateTime
+  recordedById   String
+  periodStart    DateTime
+  periodEnd      DateTime
+  status         SubscriptionPaymentStatus @default(RECORDED)
+  refundedAt     DateTime?
+  refundedById   String?
+  refundNote     String?
+  createdAt      DateTime                  @default(now())
+  subscription   ShopSubscription          @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@index([paidAt])
+}
+
+// A shop owner asks for a plan (when subscriptions are on); an admin approves after payment.
+// At most one PENDING per shop (partial unique index SubscriptionRequest_one_pending_per_shop).
+model SubscriptionRequest {
+  id             String                    @id @default(uuid())
+  shopId         String
+  planId         String
+  period         BillingPeriod
+  status         SubscriptionRequestStatus @default(PENDING)
+  requestedById  String
+  decidedById    String?
+  decidedAt      DateTime?
+  rejectNote     String?
+  subscriptionId String?
+  createdAt      DateTime                  @default(now())
+  shop           Shop                      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  plan           SubscriptionPlan          @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@index([shopId])
+}
+
+// Kept open for later (no endpoints yet):
+// a per-shop custom price for big or partner shops (used by the start price when present),
+model ShopPlanPrice {
+  id        String           @id @default(uuid())
+  shopId    String
+  planId    String
+  period    BillingPeriod
+  amount    Int
+  note      String?
+  createdAt DateTime         @default(now())
+  shop      Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  plan      SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, planId, period])
+}
+
+// plan coupon / discount codes (percent or taka),
+model PlanCoupon {
+  id        String            @id @default(uuid())
+  code      String            @unique
+  type      PlanDiscountType
+  value     Int
+  planId    String? // null = any plan
+  startsAt  DateTime?
+  endsAt    DateTime?
+  maxUses   Int?
+  usedCount Int               @default(0)
+  isActive  Boolean           @default(true)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  plan      SubscriptionPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+}
+
+// and a free month for the referrer when a referred shop pays.
+model ShopReferral {
+  id             String    @id @default(uuid())
+  referrerShopId String
+  referredShopId String    @unique
+  rewardedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([referrerShopId])
 }

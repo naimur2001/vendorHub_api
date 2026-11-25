@@ -3,6 +3,8 @@ import { validate, validateQuery } from '../../middlewares/validate.js';
 import { authenticate } from '../../middlewares/auth.js';
 import { createDealSchema, createCouponSchema, updateCouponSchema, publicDealsQuery } from './promotions.schema.js';
 import * as s from './promotions.service.js';
+import { requireModule, checkLimit } from '../../lib/entitlements.js';
+
 
 // Mounted at /api/v1. Deal and coupon management: the shop's owner or staff (checked in the service).
 const router = Router();
@@ -15,7 +17,7 @@ router.get('/deals', validateQuery(publicDealsQuery), async (req, res) => {
 });
 
 router.get('/shops/:shopId/deals', authenticate, async (req, res) => ok(res, await s.listShopDeals(req.user, req.params.shopId)));
-router.post('/shops/:shopId/deals', authenticate, validate(createDealSchema), async (req, res) =>
+router.post('/shops/:shopId/deals', authenticate, validate(createDealSchema), requireModule('PROMOTIONS'), checkLimit('maxActiveDeals'), async (req, res) =>
   ok(res, await s.createDeal(req.user, req.params.shopId, req.body), 201),
 );
 router.delete('/shops/:shopId/deals/:dealId', authenticate, async (req, res) => {
@@ -24,7 +26,7 @@ router.delete('/shops/:shopId/deals/:dealId', authenticate, async (req, res) => 
 });
 
 router.get('/shops/:shopId/coupons', authenticate, async (req, res) => ok(res, await s.listCoupons(req.user, req.params.shopId)));
-router.post('/shops/:shopId/coupons', authenticate, validate(createCouponSchema), async (req, res) =>
+router.post('/shops/:shopId/coupons', authenticate, validate(createCouponSchema), requireModule('PROMOTIONS'), async (req, res) =>
   ok(res, await s.createCoupon(req.user, req.params.shopId, req.body), 201),
 );
 router.patch('/shops/:shopId/coupons/:couponId', authenticate, validate(updateCouponSchema), async (req, res) =>
