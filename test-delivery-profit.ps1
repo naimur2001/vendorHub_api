@@ -187,13 +187,15 @@ Check 'detail has the same target' "$($det.json.data.targetProfit)/$($det.json.d
 # ---- 5. reports ----
 $s1 = Sum
 Check 'summary: targetProfit 18 + 25, gap 2 + 15, none below target' "$($s1.targetProfit)/$($s1.profitGap)/$($s1.belowTarget)" '43/17/0'
+Check 'summary: pricedMargin 20 + 40 over 2 priced shipments, gap = pricedMargin - target' "$($s1.pricedMargin)/$($s1.pricedShipments)/$($s1.pricedMargin - $s1.targetProfit -eq $s1.profitGap)" '60/2/True'
+Check 'summary without rules counted priced shipments too' "$($s0.pricedMargin)/$($s0.pricedShipments)" '60/2'
 Check 'summary: the real margin is unchanged (money counts on DELIVERED)' "$($s1.customerFees)/$($s1.margin)" '0/0'
 $bs = @((Call 'GET' "/admin/delivery/by-shop?shopId=$mobileId" $admin $null).json.data.items)[0]
-Check 'by-shop: the same sums' "$($bs.targetProfit)/$($bs.profitGap)" '43/17'
+Check 'by-shop: the same sums' "$($bs.pricedMargin)/$($bs.pricedShipments)/$($bs.targetProfit)/$($bs.profitGap)" '60/2/43/17'
 $bp = @((Call 'GET' "/admin/delivery/by-provider?shopId=$mobileId" $admin $null).json.data.items)[0]
-Check 'by-provider: the same sums' "$($bp.providerCode)/$($bp.targetProfit)/$($bp.profitGap)" 'PATHAO/43/17'
+Check 'by-provider: the same sums' "$($bp.providerCode)/$($bp.pricedMargin)/$($bp.targetProfit)/$($bp.profitGap)" 'PATHAO/60/43/17'
 $pt = @((Call 'GET' "/admin/delivery/timeseries?shopId=$mobileId" $admin $null).json.data.points)[-1]
-Check 'timeseries: today (booked) has the sums' "$($pt.booked)/$($pt.targetProfit)/$($pt.profitGap)" '2/43/17'
+Check 'timeseries: today (booked) has the sums' "$($pt.booked)/$($pt.pricedShipments)/$($pt.pricedMargin)/$($pt.targetProfit)/$($pt.profitGap)" '2/2/60/43/17'
 $first = @((Call 'GET' "/admin/delivery/timeseries?shopId=$mobileId" $admin $null).json.data.points)[0]
 Check 'timeseries: a day without shipments has null' "$($null -eq $first.targetProfit)/$($null -eq $first.profitGap)" 'True/True'
 
@@ -210,6 +212,8 @@ Check 'a zone with rules cannot be deleted -> 409 ZONE_HAS_RULES' "$($z.status)/
 $o = Call 'PATCH' "/admin/delivery/profit-rules/$($all.json.data.id)" $admin @{ isActive = $false }
 Check 'switch the all-zones rule off -> 200' "$($o.status)/$($o.json.data.isActive)" '200/False'
 Check 'outside shipment: no rule now' "$($null -eq (Row $outOrder).targetProfit)/$($null -eq (Row $outOrder).ruleName)" 'True/True'
+$s3 = Sum
+Check 'a priced shipment without a rule counts with target 0 in the gap (60 - 18)' "$($s3.pricedMargin)/$($s3.targetProfit)/$($s3.profitGap)" '60/18/42'
 Check 'delete -> 200' (DropRule $all.json.data.id).status 200
 Check 'delete again -> 404' (Call 'DELETE' "/admin/delivery/profit-rules/$($all.json.data.id)" $admin $null).status 404
 Check 'a bad id -> 400' (Call 'PATCH' '/admin/delivery/profit-rules/abc' $admin @{ isActive = $false }).status 400

@@ -87,6 +87,8 @@ export async function timeseries(q) {
       margin: d.get(day)?.margin ?? 0,
       ordersPlaced: p.get(day)?.n ?? 0,
       orderValue: p.get(day)?.value ?? 0,
+      pricedShipments: b.get(day)?.pricedShipments ?? 0,
+      pricedMargin: b.get(day)?.pricedMargin ?? 0,
       targetProfit: b.get(day)?.targetProfit ?? null,
       profitGap: b.get(day)?.profitGap ?? null,
     });

@@ -2,6 +2,9 @@
 # analysis. They never change what the customer pays (the admin zone fee) or the real margin
 # (customerFee - courierCost). Reports and shipment views always use the CURRENT rules, so old
 # shipments are recalculated too. The most specific active rule wins: zone + courier > zone > courier > all.
+# Reports: pricedShipments, pricedMargin, targetProfit, profitGap and belowTarget all count the same priced
+# shipments (courier cost known, cancelled left out); profitGap = pricedMargin - targetProfit. margin stays
+# DELIVERED only. Per shipment profitGap = margin - targetProfit.
 paths:
   /api/v1/admin/delivery/profit-rules:
     get:

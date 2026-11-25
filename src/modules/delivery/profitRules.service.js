@@ -160,9 +160,14 @@ const TARGET = Prisma.sql`(CASE
     WHEN r."percentOf" = 'CUSTOMER_FEE' THEN round(s."customerFee" * r.value / 100)
     ELSE round(s."courierCost" * r.value / 100) END)`;
 
-// over shipments the courier priced (courierCost known), cancelled ones left out; null when none has a rule
+// All four count the same "priced" shipments: courier cost known, cancelled ones left out.
+// pricedMargin = their customerFee - courierCost (margin itself counts DELIVERED only: money earned).
+// targetProfit = their targets (null when none has a rule); profitGap = pricedMargin - targetProfit,
+// so a priced shipment without a rule counts with target 0 in the gap.
 const PRICED = Prisma.sql`s."courierCost" IS NOT NULL AND s.status <> 'CANCELLED'`;
 export const PROFIT_METRICS = Prisma.sql`
+  count(*) FILTER (WHERE ${PRICED})::int AS "pricedShipments",
+  COALESCE(sum(s.margin) FILTER (WHERE ${PRICED}), 0)::int AS "pricedMargin",
   (sum(${TARGET}) FILTER (WHERE ${PRICED}))::int AS "targetProfit",
-  (sum(s.margin - ${TARGET}) FILTER (WHERE ${PRICED}))::int AS "profitGap"`;
+  (COALESCE(sum(s.margin) FILTER (WHERE ${PRICED}), 0) - sum(${TARGET}) FILTER (WHERE ${PRICED}))::int AS "profitGap"`;
 export const BELOW_TARGET = Prisma.sql`count(*) FILTER (WHERE ${PRICED} AND s.margin - ${TARGET} < 0)::int AS "belowTarget"`;

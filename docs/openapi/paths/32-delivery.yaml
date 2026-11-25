@@ -584,7 +584,7 @@ paths:
                         type: array
                         items:
                           type: object
-                          required: [day, booked, delivered, failed, customerFees, courierCost, margin, ordersPlaced, orderValue, targetProfit, profitGap]
+                          required: [day, booked, delivered, failed, customerFees, courierCost, margin, ordersPlaced, orderValue, pricedShipments, pricedMargin, targetProfit, profitGap]
                           properties:
                             day:
                               type: string
@@ -605,14 +605,20 @@ paths:
                               type: integer
                             orderValue:
                               type: integer
+                            pricedShipments:
+                              type: integer
+                              description: Priced shipments booked that day.
+                            pricedMargin:
+                              type: integer
+                              description: Their customerFee minus courierCost.
                             targetProfit:
                               type: integer
                               nullable: true
-                              description: 'Shipments booked that day, with the current profit rules (null when none has a rule).'
+                              description: Their targets with the current profit rules (null when none has a rule).
                             profitGap:
                               type: integer
                               nullable: true
-                              description: margin minus targetProfit (null when either is unknown).
+                              description: pricedMargin minus targetProfit (null when targetProfit is null).
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1107,7 +1113,7 @@ components:
             type: integer
     DeliveryMetrics:
       type: object
-      required: [shipments, delivered, failed, returned, successRate, avgPickupMinutes, avgDeliveryMinutes, customerFees, courierCost, margin, codOwedByCourier, owedToShops, targetProfit, profitGap]
+      required: [shipments, delivered, failed, returned, successRate, avgPickupMinutes, avgDeliveryMinutes, customerFees, courierCost, margin, codOwedByCourier, owedToShops, pricedShipments, pricedMargin, targetProfit, profitGap]
       properties:
         shipments:
           type: integer
@@ -1140,14 +1146,20 @@ components:
         owedToShops:
           type: integer
           description: Delivered orders not paid to the shop yet (order total minus the delivery fee).
+        pricedShipments:
+          type: integer
+          description: Shipments the courier priced (courierCost known, cancelled left out). pricedMargin, targetProfit, profitGap and belowTarget count these.
+        pricedMargin:
+          type: integer
+          description: customerFee minus courierCost over the priced shipments (margin counts DELIVERED only).
         targetProfit:
           type: integer
           nullable: true
-          description: 'Sum over shipments the courier priced (courierCost known, cancelled left out), with the CURRENT profit rules; null when none has a rule.'
+          description: The targets of the priced shipments with the CURRENT profit rules; null when none has a rule.
         profitGap:
           type: integer
           nullable: true
-          description: margin minus targetProfit (null when either is unknown).
+          description: pricedMargin minus targetProfit (a priced shipment without a rule counts with target 0); null when targetProfit is null.
     TimelineEntry:
       type: object
       required: [status, at]
