@@ -42,7 +42,7 @@ const fields = {
   ctaLabelBn: optText(40),
   sortOrder: optOrder,
   fit: z.enum(['COVER', 'CONTAIN']).optional(), // how the slide shows the image
-  placement: z.enum(['HERO', 'SIDE_AD']).optional(), // the slider or the side advertisement
+  placement: z.enum(['HERO', 'SIDE_AD', 'GALLERY']).optional(), // the slider, the side advertisement or the gallery
   isActive: optBool,
   startsAt: optDate,
   endsAt: optDate,
@@ -69,7 +69,7 @@ export const reorderSchema = z.object({
 
 export const bannerId = z.uuid();
 
-export const PLACEMENTS = ['HERO', 'SIDE_AD'];
+export const PLACEMENTS = ['HERO', 'SIDE_AD', 'GALLERY'];
 // public: the slider unless asked otherwise
 export const publicListQuery = z.object({ placement: z.enum(PLACEMENTS).default('HERO') });
 // admin: all placements unless filtered

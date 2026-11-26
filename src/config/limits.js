@@ -1,7 +1,8 @@
 // Fixed product limits (not environment settings).
 
 // Home page banners in total (active or not), to keep storage small. The public list shows at most this many.
-export const MAX_BANNERS = 12;
+export const MAX_BANNERS = 12; // HERO + SIDE_AD together
+export const MAX_GALLERY_IMAGES = 16; // GALLERY has its own limit
 
 // Saved listings per customer.
 export const MAX_WISHLIST = 200;

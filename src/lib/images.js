@@ -39,6 +39,8 @@ export const IMAGE_PROFILES = Object.freeze({
   // home page side advertisement: tall, 2:3 recommended (e.g. 600 x 900); GIFs stay animated
   SIDE_AD: Object.freeze({ width: 900, thumbWidth: 450, minWidth: 300, minHeight: 400, animated: true }),
   // optional phone version of a home banner (portrait or smaller)
+  // home page gallery: any shape (the web crops with object-fit cover), recommended 1200 x 1200; pictures only
+  GALLERY: Object.freeze({ width: 1200, thumbWidth: 600, minWidth: 600, minHeight: 600 }),
   // welcome popup poster (any shape, shown in a dialog); GIFs stay animated
   POPUP: Object.freeze({ width: 1200, thumbWidth: 400, minWidth: 300, minHeight: 300, animated: true }),
   HOME_BANNER_MOBILE: Object.freeze({ width: 1080, thumbWidth: 540, minWidth: 400, minHeight: 300, animated: true }),

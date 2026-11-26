@@ -5,18 +5,28 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { processImage, IMAGE_PROFILES } from '../../lib/images.js';
 import { stageImage, removeImage, imageUrls } from '../../lib/storage.js';
-import { MAX_BANNERS } from '../../config/limits.js';
+import { MAX_BANNERS, MAX_GALLERY_IMAGES } from '../../config/limits.js';
 import { bannerId } from './banners.schema.js';
 
 // per placement: the slider shows all live banners, the side advertisement at most 3 (the web shows the first)
-const PUBLIC_LIMIT = { HERO: MAX_BANNERS, SIDE_AD: 3 };
-// the image rules per placement (HERO landscape, SIDE_AD tall)
-const PROFILE = { HERO: 'HOME_BANNER', SIDE_AD: 'SIDE_AD' };
+const PUBLIC_LIMIT = { HERO: MAX_BANNERS, SIDE_AD: 3, GALLERY: MAX_GALLERY_IMAGES };
+// the image rules per placement (HERO landscape, SIDE_AD tall, GALLERY any shape)
+const PROFILE = { HERO: 'HOME_BANNER', SIDE_AD: 'SIDE_AD', GALLERY: 'GALLERY' };
+// limits: HERO + SIDE_AD share MAX_BANNERS; GALLERY has its own MAX_GALLERY_IMAGES (active or not)
+const isGallery = (placement) => placement === 'GALLERY';
+const limitGroup = (placement) => (isGallery(placement) ? { placement: 'GALLERY' } : { placement: { in: ['HERO', 'SIDE_AD'] } });
+const maxOf = (placement) => (isGallery(placement) ? MAX_GALLERY_IMAGES : MAX_BANNERS);
+// GALLERY is pictures only: these texts are not kept
+const PICTURE_ONLY = { subtitleEn: null, subtitleBn: null, ctaLabelEn: null, ctaLabelBn: null };
 // Serialises banner creation (Postgres advisory lock, released at the end of the transaction),
 // so two uploads at the same time cannot both pass the limit check.
 const CREATE_LOCK = 724_001;
-const limitReached = () =>
-  new AppError(409, `You can have at most ${MAX_BANNERS} banners. Delete one first.`, { code: 'BANNER_LIMIT' });
+const limitReached = (placement) =>
+  isGallery(placement)
+    ? new AppError(409, `You can have at most ${MAX_GALLERY_IMAGES} gallery images. Delete one first.`, { code: 'GALLERY_LIMIT' })
+    : new AppError(409, `You can have at most ${MAX_BANNERS} banners. Delete one first.`, { code: 'BANNER_LIMIT' });
+const countGroup = (db, placement) => db.banner.count({ where: limitGroup(placement) });
+const noPhoneVersion = () => new AppError(422, 'Gallery images have no phone version: leave "mobileMedia" out', { code: 'GALLERY_NO_MOBILE' });
 const PURPOSE = { main: 'HOME_BANNER', mobile: 'HOME_BANNER_MOBILE' };
 const include = { image: true, mobileImage: true };
 const order = [{ sortOrder: 'asc' }, { createdAt: 'asc' }];
@@ -118,25 +128,31 @@ export async function listPublic(placement = 'HERO') {
 }
 
 // ---------- admin ----------
-// meta.total counts EVERY placement: the limit of 12 is shared, whatever the filter
+// meta { total, max } is the limit of the requested placement: GALLERY -> its own 16; HERO, SIDE_AD or
+// no filter -> the 12 shared by HERO + SIDE_AD (then meta.gallery has the gallery's numbers too)
 export async function listAdmin(placement) {
-  const [rows, total] = await Promise.all([
+  const [rows, shared, gallery] = await Promise.all([
     prisma.banner.findMany({ where: placement ? { placement } : {}, include, orderBy: [{ placement: 'asc' }, ...order] }),
-    prisma.banner.count(),
+    countGroup(prisma, 'HERO'),
+    countGroup(prisma, 'GALLERY'),
   ]);
-  return { items: rows.map(presentAdmin), meta: { total, max: MAX_BANNERS } };
+  const meta = isGallery(placement)
+    ? { total: gallery, max: MAX_GALLERY_IMAGES }
+    : { total: shared, max: MAX_BANNERS, ...(!placement && { gallery: { total: gallery, max: MAX_GALLERY_IMAGES } }) };
+  return { items: rows.map(presentAdmin), meta };
 }
 
 export async function createBanner(admin, body, files) {
   if (!files?.media?.[0]) throw new AppError(400, 'Send the banner image in the multipart field "media"');
-  // quick check before any file is written; the real check is repeated under the lock below
-  if ((await prisma.banner.count()) >= MAX_BANNERS) throw limitReached();
   const placement = body.placement ?? 'HERO';
+  if (isGallery(placement) && files?.mobileMedia?.[0]) throw noPhoneVersion();
+  // quick check before any file is written; the real check is repeated under the lock below
+  if ((await countGroup(prisma, placement)) >= maxOf(placement)) throw limitReached(placement);
   const published = await publishMedia(files, placement);
   try {
     const banner = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${CREATE_LOCK}::bigint)`; // $queryRaw cannot read a void result
-      if ((await tx.banner.count()) >= MAX_BANNERS) throw limitReached();
+      if ((await countGroup(tx, placement)) >= maxOf(placement)) throw limitReached(placement);
       const image = await createImage(tx, admin, published.main, PURPOSE.main);
       const mobile = published.mobile && (await createImage(tx, admin, published.mobile, PURPOSE.mobile));
       let { sortOrder } = body;
@@ -147,6 +163,7 @@ export async function createBanner(admin, body, files) {
       const b = await tx.banner.create({
         data: {
           ...body,
+          ...(isGallery(placement) && PICTURE_ONLY),
           placement,
           sortOrder,
           mediaType: published.main.animated ? 'GIF' : 'IMAGE',
@@ -180,6 +197,12 @@ export async function updateBanner(admin, id, body, files) {
   // a new placement keeps the current image only when it meets that placement's minimum size
   const placement = fields.placement ?? banner.placement;
   const moved = placement !== banner.placement;
+  if (isGallery(placement) && files?.mobileMedia?.[0]) throw noPhoneVersion();
+  // moving between the gallery and HERO / SIDE_AD must fit the other limit
+  if (moved && isGallery(placement) !== isGallery(banner.placement) && (await countGroup(prisma, placement)) >= maxOf(placement)) {
+    throw limitReached(placement);
+  }
+  if (isGallery(placement)) Object.assign(fields, PICTURE_ONLY);
   if (moved && !files?.media?.[0]) {
     const p = IMAGE_PROFILES[PROFILE[placement]];
     if (banner.image.width < p.minWidth || banner.image.height < p.minHeight) {
@@ -193,8 +216,13 @@ export async function updateBanner(admin, id, body, files) {
 
   const published = await publishMedia(files, placement);
   const oldKeys = [];
+  const dropMobile = Boolean(removeMobileMedia || (isGallery(placement) && banner.mobileImage)); // the gallery has no phone version
   try {
     const updated = await prisma.$transaction(async (tx) => {
+      if (moved && isGallery(placement) !== isGallery(banner.placement)) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${CREATE_LOCK}::bigint)`;
+        if ((await countGroup(tx, placement)) >= maxOf(placement)) throw limitReached(placement);
+      }
       const data = { ...fields };
       const oldImageIds = [];
       if (published.main) {
@@ -204,7 +232,7 @@ export async function updateBanner(admin, id, body, files) {
         oldImageIds.push(banner.image.id);
         oldKeys.push(banner.image.key);
       }
-      if (published.mobile || removeMobileMedia) {
+      if (published.mobile || dropMobile) {
         data.mobileImageId = published.mobile
           ? (await createImage(tx, admin, published.mobile, PURPOSE.mobile)).id
           : null;
@@ -218,7 +246,8 @@ export async function updateBanner(admin, id, body, files) {
       await audit(tx, admin, 'banner.updated', id, {
         fields: Object.keys(fields),
         mediaReplaced: Boolean(published.main),
-        mobileMediaChanged: Boolean(published.mobile || removeMobileMedia),
+        mobileMediaChanged: Boolean(published.mobile || dropMobile),
+        ...(moved && { placement: { from: banner.placement, to: placement } }),
       });
       return b;
     });

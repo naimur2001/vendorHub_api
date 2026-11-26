@@ -817,6 +817,7 @@ model OrderMessage {
 enum BannerPlacement {
   HERO // the home page slider (landscape)
   SIDE_AD // the home page side advertisement (tall)
+  GALLERY // the home page image gallery (pictures only; its own limit of 16)
 }
 
 enum BannerFit {

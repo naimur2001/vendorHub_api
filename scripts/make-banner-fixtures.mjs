@@ -26,6 +26,9 @@ const files = {
   // side advertisement: tall 2:3, and one below its 300 x 400 minimum
   'side.png': await solid(600, 900, 90, 30, 120).png().toBuffer(),
   'side-small.png': await solid(280, 420, 90, 30, 120).png().toBuffer(),
+  // gallery: square 1200 x 1200 (recommended), and one below its 600 x 600 minimum
+  'gallery.png': await solid(1200, 1200, 40, 140, 90).png().toBuffer(),
+  'gallery-small.png': await solid(500, 700, 40, 140, 90).png().toBuffer(),
   // random noise does not compress: well over 5 MB
   'big.png': await sharp(crypto.randomBytes(2600 * 1000 * 3), { raw: { width: 2600, height: 1000, channels: 3 } })
     .png({ compressionLevel: 0 })

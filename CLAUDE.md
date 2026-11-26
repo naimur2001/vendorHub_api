@@ -28,7 +28,7 @@ Node 22 (ES modules, plain JS), Express 5, Prisma 6, PostgreSQL 16 + pgvector (D
 - New endpoint checklist: Zod schema, service, controller, route, OpenAPI file with `required`/`nullable`, update the exact count in `test-openapi.ps1`, PowerShell test, run the full suite.
 
 ## Tests
-- PowerShell suites `test-*.ps1`, all run by `run-all-tests.ps1` (reseeds first; `test-security.ps1` must stay LAST). 54 suites, all must pass.
+- PowerShell suites `test-*.ps1`, all run by `run-all-tests.ps1` (reseeds first; `test-security.ps1` must stay LAST). 55 suites, all must pass.
 - Test `.env`: `MAIL_MODE=log`, `TRYON_MODE=mock`, `SEARCH_IMAGE_MODE=mock`, `MESSAGING_MODE=mock`, `PAYMENT_MODE=mock`, `COURIER_MODE=mock`, `AUTO_VERIFY_EMAIL_DOMAINS=vendorshub.test`. Never run tests in gemini/smtp or a real messaging/payment/courier mode.
 - Scripts: ASCII only. PowerShell 5.1 quirks: wrap one-item results in `@()`; a WebRequestSession re-sends earlier headers; a hand-made `Cookie` header is dropped; curl joins repeated `--data-binary`.
 - Helpers: `node --env-file=.env prisma/seed.js`, `scripts/backfill-fingerprints.mjs`, `scripts/check-openapi.mjs`, `scripts/clean-orphan-files.mjs` (dry run by default), `scripts/check-pathao.mjs` (read-only check of the Pathao SANDBOX with the `.env` keys).
