@@ -78,7 +78,7 @@ const BANNER_DEFS = [
 async function seedBanners() {
   let made = 0;
   for (const [i, def] of BANNER_DEFS.entries()) {
-    const { colors, size = [1800, 600], placement = 'HERO', ...fields } = def;
+    const { colors, size = [2400, 1200], placement = 'HERO', ...fields } = def;
     const [w, h] = size;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="${colors[0]}"/><stop offset="1" stop-color="${colors[1]}"/></linearGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/><circle cx="${Math.round(w * 0.8)}" cy="${Math.round(h / 2)}" r="${Math.round(Math.min(w, h) * 0.36)}" fill="#ffffff" fill-opacity="0.12"/></svg>`;
     try {

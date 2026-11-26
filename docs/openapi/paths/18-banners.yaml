@@ -81,7 +81,7 @@ paths:
       description: |
         Send the image in `media` (required) and an optional phone version in `mobileMedia`.
         Size rules per placement:
-        - HERO (default): recommended 3:1, e.g. 1800 x 600; at least 900 x 300.
+        - HERO (default): recommended 2:1, e.g. 2400 x 1200 (stored up to 2400 wide); at least 900 x 300.
         - SIDE_AD: recommended 2:3, e.g. 600 x 900; at least 300 x 400.
         - GALLERY: pictures only (JPG, PNG, WebP; no GIF), any shape (the web crops with object-fit cover),
           recommended 1200 x 1200, at least 600 x 600. No phone version (mobileMedia -> 422 GALLERY_NO_MOBILE);
@@ -449,7 +449,7 @@ components:
       enum: [HERO, SIDE_AD, GALLERY]
       default: HERO
       description: |
-        HERO = the home page slider (landscape; recommended 1800 x 600, at least 900 x 300).
+        HERO = the home page slider (landscape; recommended 2:1, e.g. 2400 x 1200, at least 900 x 300).
         SIDE_AD = the home page side advertisement (tall; recommended 600 x 900, at least 300 x 400).
         HERO and SIDE_AD share the limit of 12 banners.
         GALLERY = the home page image gallery (pictures only, any shape; recommended 1200 x 1200, at least
