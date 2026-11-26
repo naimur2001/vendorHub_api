@@ -1,3 +1,4 @@
+import { choiceStillValid, groupsOf } from '../../lib/listingOptions.js';
 import crypto from 'node:crypto';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
@@ -77,6 +78,7 @@ const formatOrder = (o) => ({
     quantity: i.quantity,
     lineTotal: i.unitPrice * i.quantity,
     bargained: i.bargained,
+    options: i.options ?? null, // the chosen variation, e.g. { "Size": "M" } (null = none)
   })),
 });
 
@@ -132,6 +134,7 @@ async function placeOrdersInTransaction(userId, { shops: choices, useCredit = fa
         if (!l.isActive || !l.shop.isActive || !l.product.isActive || l.product.moderationStatus !== 'APPROVED') problem = 'UNAVAILABLE';
         else if (l.availability === 'OUT_OF_STOCK') problem = 'OUT_OF_STOCK';
         else if (l.stockQty !== null && item.quantity > l.stockQty) problem = 'INSUFFICIENT_STOCK';
+        else if (groupsOf(l).length > 0 && !choiceStillValid(l, item.options)) problem = 'OPTION_UNAVAILABLE';
         if (problem) {
           problems.push({ listingId: l.id, title: l.product.title, problem });
           continue;
@@ -157,6 +160,7 @@ async function placeOrdersInTransaction(userId, { shops: choices, useCredit = fa
           unitPrice,
           quantity: item.quantity,
           bargained,
+          options: groupsOf(l).length > 0 ? item.options : null, // snapshot of the chosen variation
           stockQty: l.stockQty,
           flashDealId: dealApplied ? deal.id : null,
           dealMaxQty: dealApplied ? deal.maxQty : null,
@@ -309,13 +313,14 @@ async function placeOrdersInTransaction(userId, { shops: choices, useCredit = fa
             }),
             statusEvents: { create: [{ status: 'PLACED', actorRole: 'CUSTOMER' }] },
             items: {
-              create: lines.map(({ listingId, title, unitPrice, quantity, bargained, flashDealId }) => ({
+              create: lines.map(({ listingId, title, unitPrice, quantity, bargained, flashDealId, options }) => ({
                 listingId,
                 title,
                 unitPrice,
                 quantity,
                 bargained,
                 flashDealId,
+                ...(options && { options }),
               })),
             },
             // online orders get a payment record that the (mock) gateway completes

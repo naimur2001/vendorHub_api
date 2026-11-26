@@ -513,6 +513,12 @@ components:
                 type: boolean
               flashDeal:
                 type: boolean
+              options:
+                type: object
+                nullable: true
+                additionalProperties:
+                  type: string
+                description: The chosen variation (null = none).
         subtotal:
           type: integer
         couponCode:

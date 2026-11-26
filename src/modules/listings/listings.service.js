@@ -1,8 +1,12 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { assertShopAccess } from '../../lib/shopAccess.js';
 import { notifyPriceDrop } from '../notifications/notifications.events.js';
 import { stockIsFine } from '../../lib/availability.js';
+
+// Variations as stored: a non-empty list of groups, or SQL NULL for none.
+export const storedOptions = (options) => (Array.isArray(options) && options.length > 0 ? options : Prisma.DbNull);
 
 export function deriveAvailability(stockQty) {
   if (stockQty === null || stockQty === undefined) return 'AVAILABLE';
@@ -50,6 +54,7 @@ export async function createListing(user, shopId, input) {
     availability: input.availability ?? deriveAvailability(input.stockQty),
     bargainEnabled: input.bargainEnabled,
     minOfferPercent: input.minOfferPercent,
+    options: storedOptions(input.options),
   };
 
   // A previously removed listing is re-activated instead of creating a duplicate
@@ -73,6 +78,7 @@ export async function updateListing(user, shopId, listingId, input) {
   if (!listing) throw new AppError(404, 'Listing not found');
 
   const data = { ...input };
+  if (input.options !== undefined) data.options = storedOptions(input.options);
   if (input.stockQty !== undefined && input.availability === undefined) {
     data.availability = deriveAvailability(input.stockQty);
   }

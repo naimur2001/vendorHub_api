@@ -3,6 +3,7 @@ import { deliveryAvailable, quoteOf, shopDeliveryFee } from '../delivery/deliver
 import { AppError } from '../../lib/errors.js';
 import { recordAddToCart } from '../../lib/analytics.js';
 import { activeDeals, effectivePrice, presentDeal } from '../../lib/deals.js';
+import { choiceStillValid, groupsOf, resolveChoice } from '../../lib/listingOptions.js';
 
 const MAX_QTY_PER_LINE = 10;
 
@@ -91,6 +92,8 @@ export async function getCart(userId, addressId) {
     if (!l.isActive || !l.shop.isActive || !l.product.isActive || l.product.moderationStatus !== 'APPROVED') problem = 'UNAVAILABLE';
     else if (l.availability === 'OUT_OF_STOCK') problem = 'OUT_OF_STOCK';
     else if (l.stockQty !== null && item.quantity > l.stockQty) problem = 'INSUFFICIENT_STOCK';
+    // the shop changed its variations (removed this size, or marked it sold out)
+    else if (groupsOf(l).length > 0 && !choiceStillValid(l, item.options)) problem = 'OPTION_UNAVAILABLE';
 
     // An accepted bargain for this customer overrides the listing price (built on Days 13-15)
     const bargainApplied = Boolean(
@@ -118,6 +121,7 @@ export async function getCart(userId, addressId) {
       id: item.id,
       listingId: l.id,
       quantity: item.quantity,
+      options: item.options ?? {}, // the chosen variation, e.g. { "Size": "M" }
       product: {
         id: l.product.id,
         slug: l.product.slug,
@@ -154,7 +158,7 @@ export async function getCart(userId, addressId) {
   };
 }
 
-export async function addItem(userId, { listingId, quantity }) {
+export async function addItem(userId, { listingId, quantity, options: chosen }) {
   const listing = await prisma.shopListing.findUnique({
     where: { id: listingId },
     include: { shop: { select: { isActive: true } }, product: { select: { isActive: true, moderationStatus: true } } },
@@ -166,10 +170,13 @@ export async function addItem(userId, { listingId, quantity }) {
   if (listing.availability === 'OUT_OF_STOCK') {
     throw new AppError(409, 'This item is out of stock');
   }
+  // one in-stock value per variation group (422 OPTIONS_REQUIRED / OPTION_INVALID / OPTION_OUT_OF_STOCK)
+  const { options, key } = resolveChoice(listing, chosen);
 
   const cart = await getOrCreateCart(userId);
+  // the same listing in another size or colour is its own cart line
   const existing = await prisma.cartItem.findUnique({
-    where: { cartId_listingId: { cartId: cart.id, listingId } },
+    where: { cartId_listingId_optionsKey: { cartId: cart.id, listingId, optionsKey: key } },
   });
 
   // adding the same listing again increases its quantity
@@ -184,7 +191,7 @@ export async function addItem(userId, { listingId, quantity }) {
   if (existing) {
     await prisma.cartItem.update({ where: { id: existing.id }, data: { quantity: newQty } });
   } else {
-    await prisma.cartItem.create({ data: { cartId: cart.id, listingId, quantity: newQty } });
+    await prisma.cartItem.create({ data: { cartId: cart.id, listingId, quantity: newQty, options, optionsKey: key } });
   }
   recordAddToCart(listing); // shop analytics, best effort
   return getCart(userId);

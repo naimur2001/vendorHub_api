@@ -410,6 +410,7 @@ model ShopListing {
   flashDeals      FlashDeal[]
   lowStockAt         Int?      @default(3) // notify the shop team when stockQty falls to this or below; null = off
   lowStockNotifiedAt DateTime? // set when notified; cleared when restocked above lowStockAt
+  options            Json? // variations: [{ name, values: [{ value, inStock }] }], max 3 groups x 20 values (src/lib/listingOptions.js)
 
   @@unique([shopId, productId])
   @@index([productId, price])
@@ -467,11 +468,13 @@ model CartItem {
   listingId String
   bargainId String? // set when an accepted bargain price applies
   quantity  Int         @default(1)
+  options    Json        @default("{}") // the chosen variation, e.g. { "Size": "M" } ({} when the listing has none)
+  optionsKey String      @default("") // the same choice as text ("Size=M"): one cart line per listing + choice
   cart      Cart        @relation(fields: [cartId], references: [id], onDelete: Cascade)
   listing   ShopListing @relation(fields: [listingId], references: [id])
   bargain   Bargain?    @relation(fields: [bargainId], references: [id])
 
-  @@unique([cartId, listingId])
+  @@unique([cartId, listingId, optionsKey])
 }
 
 // ───────────── SPLIT CHECKOUT / ORDERS ─────────────
@@ -884,6 +887,7 @@ model OrderItem {
   quantity   Int
   bargained  Boolean     @default(false)
   flashDealId String? // the flash deal that set unitPrice (its units are given back if the order is cancelled)
+  options    Json? // snapshot of the chosen variation, e.g. { "Size": "M", "Colour": "Black" } (null = none)
   subOrder   SubOrder    @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
   listing    ShopListing @relation(fields: [listingId], references: [id])
 

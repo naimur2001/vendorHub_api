@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { listingOptionsSchema } from '../../lib/listingOptions.js';
 
 const availability = z.enum(['IN_STOCK', 'LIMITED', 'AVAILABLE', 'OUT_OF_STOCK']);
 
@@ -18,6 +19,7 @@ const listingInput = z
     availability: availability.optional(),
     bargainEnabled: z.boolean().default(false),
     minOfferPercent: z.number().int().min(50).max(100).default(92),
+    options: listingOptionsSchema.nullable().optional(), // variations (size, colour)
   })
   .strict()
   .refine((l) => !(l.availability && l.stockQty !== null && l.stockQty !== undefined), {

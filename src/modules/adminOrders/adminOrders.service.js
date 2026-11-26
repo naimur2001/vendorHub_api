@@ -207,6 +207,7 @@ async function presentDetail(o, now = new Date()) {
       lineTotal: i.unitPrice * i.quantity,
       bargained: i.bargained,
       flashDeal: Boolean(i.flashDealId),
+      options: i.options ?? null, // the chosen variation (null = none)
     })),
     subtotal: o.subtotal,
     couponCode: o.couponCode,

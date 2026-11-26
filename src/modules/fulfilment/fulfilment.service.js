@@ -73,6 +73,7 @@ const formatForShop = (o) => ({
     quantity: i.quantity,
     lineTotal: i.unitPrice * i.quantity,
     bargained: i.bargained,
+    options: i.options ?? null, // the size / colour to pack (null = none)
   })),
   nextStatuses: allowedNext(o),
   // courier orders only (else null): no courier cost, no margin

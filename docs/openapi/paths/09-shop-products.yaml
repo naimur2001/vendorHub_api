@@ -547,6 +547,10 @@ components:
               minimum: 50
               maximum: 100
               default: 92
+            options:
+              allOf:
+                - $ref: '#/components/schemas/ListingOptions'
+              nullable: true
     ShopProductUpdate:
       type: object
       additionalProperties: false
@@ -654,3 +658,7 @@ components:
           type: integer
         isActive:
           type: boolean
+        options:
+          allOf:
+            - $ref: '#/components/schemas/ListingOptions'
+          nullable: true

@@ -46,7 +46,7 @@ paths:
       tags: [Listings]
       operationId: createListing
       summary: Sell a catalog product in this shop
-      description: If availability is left out it is derived from stockQty (0 = OUT_OF_STOCK, 1-5 = LIMITED, 6 or more = IN_STOCK). minOfferPercent is the lowest offer (as a percent of the price) that is accepted automatically.
+      description: If availability is left out it is derived from stockQty (0 = OUT_OF_STOCK, 1-5 = LIMITED, 6 or more = IN_STOCK). minOfferPercent is the lowest offer (as a percent of the price) that is accepted automatically. options adds variations (sizes, colours) that customers must choose from.
       security:
         - bearerAuth: []
       parameters:
@@ -67,6 +67,10 @@ paths:
                 productId:
                   type: string
                   format: uuid
+                options:
+                  allOf:
+                    - $ref: '#/components/schemas/ListingOptions'
+                  nullable: true
                 price:
                   type: integer
                   minimum: 1
@@ -148,6 +152,11 @@ paths:
                   type: boolean
                 lowStockAt:
                   $ref: '#/components/schemas/LowStockAt'
+                options:
+                  allOf:
+                    - $ref: '#/components/schemas/ListingOptions'
+                  nullable: true
+                  description: The variations; null or [] removes them. Cart lines whose choice no longer exists get the problem OPTION_UNAVAILABLE.
       responses:
         '200':
           description: The updated listing.
@@ -233,7 +242,10 @@ paths:
       tags: [Cart]
       operationId: addCartItem
       summary: Add a shop listing to my cart (adds to the quantity if already there)
-      description: Maximum 10 per item. An item with an applied bargain price is limited to 1 unit.
+      description: |
+        Maximum 10 per item. An item with an applied bargain price is limited to 1 unit.
+        For a listing with variations, options is required (see ChosenOptions; 422 when missing, unknown or
+        sold out). The same listing with another choice is a separate cart line; the same choice adds up.
       security:
         - bearerAuth: []
       requestBody:
@@ -252,6 +264,8 @@ paths:
                   minimum: 1
                   maximum: 10
                   default: 1
+                options:
+                  $ref: '#/components/schemas/ChosenOptions'
       responses:
         '200':
           description: The updated cart.
@@ -267,6 +281,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          description: A variation is missing, unknown or sold out (error.details.code OPTIONS_REQUIRED, OPTION_INVALID or OPTION_OUT_OF_STOCK).
   /api/v1/cart/items/{itemId}:
     patch:
       tags: [Cart]
@@ -925,6 +941,7 @@ paths:
       tags: [Bargains]
       operationId: bargainAddToCart
       summary: Put an ACCEPTED deal in my cart (1 unit, at the agreed price or the current price if lower)
+      description: For a listing with variations the customer chooses them now (options, see ChosenOptions; 422 when missing, unknown or sold out). The body may be empty otherwise.
       security:
         - bearerAuth: []
       parameters:
@@ -934,6 +951,16 @@ paths:
           schema:
             type: string
             format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                options:
+                  $ref: '#/components/schemas/ChosenOptions'
       responses:
         '200':
           description: The updated cart.
@@ -1663,6 +1690,54 @@ components:
           format: uri
           maxLength: 500
           description: Best a PRIVATE_DOCUMENT upload link (POST /api/v1/uploads).
+    ListingOptions:
+      type: array
+      maxItems: 3
+      description: |
+        Variations of a listing (e.g. Size and Colour). Up to 3 groups; each group has 1 to 20 values.
+        Names and values: 1 to 30 characters, no "=" or "|", unique (ignoring case) within their list.
+        A value with inStock false is shown but cannot be chosen. Stock counts and prices stay per listing.
+      items:
+        type: object
+        additionalProperties: false
+        required: [name, values]
+        properties:
+          name:
+            type: string
+            minLength: 1
+            maxLength: 30
+            example: Size
+          values:
+            type: array
+            minItems: 1
+            maxItems: 20
+            items:
+              type: object
+              additionalProperties: false
+              required: [value]
+              properties:
+                value:
+                  type: string
+                  minLength: 1
+                  maxLength: 30
+                  example: M
+                inStock:
+                  type: boolean
+                  default: true
+    ChosenOptions:
+      type: object
+      description: |
+        The customer's choice: one value per group of the listing's options, e.g. { "Size": "M", "Colour": "Black" }.
+        Names and values are matched ignoring case and stored with the listing's own spelling.
+        Required when the listing has options: 422 with error.details.code OPTIONS_REQUIRED (a group has no
+        value), OPTION_INVALID (unknown group or value) or OPTION_OUT_OF_STOCK (the value is sold out).
+      maxProperties: 3
+      additionalProperties:
+        type: string
+        maxLength: 30
+      example:
+        Size: M
+        Colour: Black
     ShopListing:
       type: object
       description: The shop's own view of a listing (includes stockQty and minOfferPercent, never shown publicly).
@@ -1684,6 +1759,11 @@ components:
           type: integer
         isActive:
           type: boolean
+        options:
+          allOf:
+            - $ref: '#/components/schemas/ListingOptions'
+          nullable: true
+          description: Variations (null = none).
         product:
           type: object
           additionalProperties: true
@@ -1765,6 +1845,7 @@ components:
           $ref: '#/components/schemas/OrderCreditUsed'
         items:
           type: array
+          description: 'Each item carries options, the chosen variation (e.g. { "Size": "M" }) or null.'
           items:
             type: object
             additionalProperties: true

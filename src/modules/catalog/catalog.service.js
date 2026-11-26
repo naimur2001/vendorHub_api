@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { thumbFor } from '../../lib/storage.js';
+import { groupsOf } from '../../lib/listingOptions.js';
 import { distanceKm } from '../../lib/geo.js';
 import { activeDeals, effectivePrice, presentDeal, dealJoin, effectivePriceSql } from '../../lib/deals.js';
 const AVAILABILITY_RANK = { IN_STOCK: 4, AVAILABLE: 3, LIMITED: 2, OUT_OF_STOCK: 1 };
@@ -282,6 +283,7 @@ export async function getProduct(slug, listingId, point = null) {
     deal: presentDeal(deals.get(l.id), l.price),
     availability: l.availability,
     bargainEnabled: l.bargainEnabled,
+    options: groupsOf(l),
     discountPercent: product.msrp ? Math.round((1 - priceOf(l) / product.msrp) * 100) : null,
     shop: { ...l.shop, rating: ratings.get(l.shop.id) ?? { average: null, count: 0 } },
     ...(point && { distanceKm: distanceKm(point, l.shop.market) }),

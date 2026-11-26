@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { listingOptionsSchema } from '../../lib/listingOptions.js';
 
 const availability = z.enum(['IN_STOCK', 'LIMITED', 'AVAILABLE', 'OUT_OF_STOCK']);
 
@@ -10,6 +11,7 @@ export const createListingSchema = z.object({
   bargainEnabled: z.boolean().default(false),
   minOfferPercent: z.number().int().min(50).max(100).default(92),
   lowStockAt: z.number().int().min(0).max(10000).nullable().optional(), // default 3; null = no alert
+  options: listingOptionsSchema.nullable().optional(), // variations (size, colour); null or [] = none
 });
 
 // GET /shops/:shopId/listings?lowStock=true: only listings at or below their lowStockAt
@@ -27,5 +29,6 @@ export const updateListingSchema = z
     minOfferPercent: z.number().int().min(50).max(100).optional(),
     isActive: z.boolean().optional(),
     lowStockAt: z.number().int().min(0).max(10000).nullable().optional(),
+    options: listingOptionsSchema.nullable().optional(), // null or [] removes the variations
   })
   .refine((o) => Object.keys(o).length > 0, { message: 'Provide at least one field to update' });

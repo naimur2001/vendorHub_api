@@ -1,3 +1,4 @@
+import { resolveChoice } from '../../lib/listingOptions.js';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { env } from '../../config/env.js';
@@ -377,7 +378,7 @@ export async function declineOffer(user, id) {
 }
 
 // Puts ONE unit into the cart with the agreed price attached.
-export async function addToCart(user, id) {
+export async function addToCart(user, id, chosen) {
   const { b, actor } = await loadForActor(user, id);
   if (actor !== 'CUSTOMER') throw new AppError(403, 'Only the customer can add this to a cart');
   if (effectiveStatus(b) !== 'ACCEPTED') {
@@ -386,6 +387,8 @@ export async function addToCart(user, id) {
   const l = b.listing;
   if (!l.isActive || !l.shop.isActive) throw new AppError(409, 'This listing is no longer available');
   if (l.availability === 'OUT_OF_STOCK') throw new AppError(409, 'This item is out of stock');
+  // the offer is for the listing; the size / colour is chosen now (422 when one is missing or sold out)
+  const { options, key } = resolveChoice(l, chosen);
 
   const cart = await prisma.cart.upsert({
     where: { userId: user.id },
@@ -393,9 +396,9 @@ export async function addToCart(user, id) {
     create: { userId: user.id },
   });
   await prisma.cartItem.upsert({
-    where: { cartId_listingId: { cartId: cart.id, listingId: l.id } },
+    where: { cartId_listingId_optionsKey: { cartId: cart.id, listingId: l.id, optionsKey: key } },
     update: { quantity: 1, bargainId: b.id },
-    create: { cartId: cart.id, listingId: l.id, quantity: 1, bargainId: b.id },
+    create: { cartId: cart.id, listingId: l.id, quantity: 1, bargainId: b.id, options, optionsKey: key },
   });
   return getCart(user.id);
 }

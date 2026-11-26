@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { uniqueSlug } from '../../lib/slug.js';
 import { assertShopAccess } from '../../lib/shopAccess.js';
-import { deriveAvailability } from '../listings/listings.service.js';
+import { deriveAvailability, storedOptions } from '../listings/listings.service.js';
 import { fingerprintProductTitles, inBackground } from '../../lib/fingerprints.js';
 const DAILY_LIMIT = 20;
 const LEVEL_RANK = { UNVERIFIED: 0, DOCUMENTS_VERIFIED: 1, BUSINESS_VERIFIED: 2, PHYSICAL_SHOP_VERIFIED: 3, TRUSTED_VENDOR: 4 };
@@ -142,6 +142,7 @@ export async function createShopProduct(user, shopId, input) {
         availability: l.availability ?? deriveAvailability(l.stockQty),
         bargainEnabled: l.bargainEnabled,
         minOfferPercent: l.minOfferPercent,
+        options: storedOptions(l.options),
       },
     });
     await tx.auditLog.create({

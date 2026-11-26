@@ -6,6 +6,7 @@ import {
   amountSchema,
   listBargainsQuery,
   shopInboxQuery,
+  bargainCartSchema,
 } from './bargains.schema.js';
 import * as c from './bargains.controller.js';
 import { requireVerifiedEmail } from '../../middlewares/verifiedEmail.js';
@@ -21,7 +22,7 @@ router.get('/bargains/:id', authenticate, c.get);
 router.post('/bargains/:id/accept', authenticate, c.accept);
 router.post('/bargains/:id/counter', authenticate, validate(amountSchema), c.counter);
 router.post('/bargains/:id/decline', authenticate, c.decline);
-router.post('/bargains/:id/add-to-cart', authenticate, c.addToCart);
+router.post('/bargains/:id/add-to-cart', authenticate, validate(bargainCartSchema), c.addToCart);
 router.get('/shops/:shopId/bargains', ...shopTeam, validateQuery(shopInboxQuery), c.shopInbox);
 
 export default router;

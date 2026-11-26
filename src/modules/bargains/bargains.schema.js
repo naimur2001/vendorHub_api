@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import { chosenOptionsSchema } from '../../lib/listingOptions.js';
+
+// POST /bargains/:id/add-to-cart: the size / colour for a listing with variations (body may be empty)
+export const bargainCartSchema = z.object({ options: chosenOptionsSchema.optional() }).strict().optional().default({});
 
 const statuses = ['AWAITING_SHOP', 'COUNTERED', 'ACCEPTED', 'DECLINED', 'EXPIRED'];
 

@@ -754,6 +754,8 @@ components:
           $ref: '#/components/schemas/Availability'
         bargainEnabled:
           type: boolean
+        options:
+          $ref: '#/components/schemas/ListingOptions'
         discountPercent:
           type: integer
           nullable: true
